@@ -49,11 +49,12 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 
+  <!-- Name is how VSSDK matches d:ProjectName in source.extension.vsixmanifest; SDK-style projects do not set it. -->
   <ItemGroup>
-    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" />
-    <ProjectReference Include="..\SqlLense.Analyzers\SqlLense.Analyzers.csproj" />
-    <ProjectReference Include="..\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" />
-    <ProjectReference Include="..\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" />
+    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" Name="SqlLense.Core" />
+    <ProjectReference Include="..\SqlLense.Analyzers\SqlLense.Analyzers.csproj" Name="SqlLense.Analyzers" />
+    <ProjectReference Include="..\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" Name="SqlLense.CodeFixes" />
+    <ProjectReference Include="..\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" Name="SqlLense.SchemaReader" />
   </ItemGroup>
 
   <ItemGroup>
