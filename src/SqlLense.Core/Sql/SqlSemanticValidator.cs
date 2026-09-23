@@ -315,10 +315,16 @@ namespace SqlLense.Sql
             return new RowSource(alias, baseName, explicitColumns == null ? obj : null, explicitColumns);
         }
 
-        /// <summary>Server- or other-database-qualified names cannot be checked against this schema.</summary>
+        /// <summary>
+        /// Names that cannot be checked against this schema: server- or other-database-qualified names
+        /// and the system catalog (sys.*, INFORMATION_SCHEMA.*), which snapshots do not capture.
+        /// </summary>
         private bool IsExternal(SchemaObjectName name) =>
             name.ServerIdentifier != null ||
-            (name.DatabaseIdentifier != null && !_cmp.Equals(name.DatabaseIdentifier.Value, _schema.DatabaseName));
+            (name.DatabaseIdentifier != null && !_cmp.Equals(name.DatabaseIdentifier.Value, _schema.DatabaseName)) ||
+            (name.SchemaIdentifier != null &&
+             (string.Equals(name.SchemaIdentifier.Value, "sys", StringComparison.OrdinalIgnoreCase) ||
+              string.Equals(name.SchemaIdentifier.Value, "INFORMATION_SCHEMA", StringComparison.OrdinalIgnoreCase)));
 
         private HashSet<string>? OutputColumns(QueryExpression? query)
         {

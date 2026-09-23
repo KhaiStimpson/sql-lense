@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Reads a SQL Server schema into a snapshot. Driver-agnostic (DbConnection) so the VSIX can use the
+       in-box System.Data.SqlClient and the CLI can use Microsoft.Data.SqlClient. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>SqlLense.SchemaReader</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SqlLense.Core.Tests" />
+  </ItemGroup>
+</Project>
