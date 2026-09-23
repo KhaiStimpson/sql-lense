@@ -30,21 +30,31 @@ internal static class AnalyzerHarness
 
     public static string SchemaPath => s_schemaPath.Value;
 
-    public static CSharpCompilation Compile(string source) =>
+    public static CSharpCompilation Compile(string source, IEnumerable<MetadataReference>? extraReferences = null) =>
         CSharpCompilation.Create(
             "Test",
             new[] { CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest), path: "/test/Test.cs") },
-            References,
+            References.AddRange(extraReferences ?? Enumerable.Empty<MetadataReference>()),
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
 
-    public static AnalyzerOptions Options(bool withSchema) =>
-        new(ImmutableArray<AdditionalText>.Empty, new TestOptionsProvider(withSchema
-            ? new Dictionary<string, string> { [SchemaResolver.SchemaPathProperty] = SchemaPath }
-            : new Dictionary<string, string> { [SchemaResolver.SchemaPathProperty] = "/does/not/exist.json" }));
-
-    public static async Task<ImmutableArray<Diagnostic>> GetDiagnosticsAsync(string source, bool withSchema = true)
+    public static AnalyzerOptions Options(bool withSchema, IReadOnlyDictionary<string, string>? buildProperties = null)
     {
-        var compilation = Compile(source);
+        var global = new Dictionary<string, string> { [SchemaResolver.SchemaPathProperty] = withSchema ? SchemaPath : "/does/not/exist.json" };
+        foreach (var (key, value) in buildProperties ?? new Dictionary<string, string>())
+        {
+            global[key] = value;
+        }
+
+        return new(ImmutableArray<AdditionalText>.Empty, new TestOptionsProvider(global));
+    }
+
+    public static async Task<ImmutableArray<Diagnostic>> GetDiagnosticsAsync(
+        string source,
+        bool withSchema = true,
+        IReadOnlyDictionary<string, string>? buildProperties = null,
+        IEnumerable<MetadataReference>? extraReferences = null)
+    {
+        var compilation = Compile(source, extraReferences);
         var compileErrors = compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
         Assert.True(compileErrors.Count == 0, "Test source does not compile:\n" + string.Join("\n", compileErrors));
 
@@ -52,7 +62,7 @@ internal static class AnalyzerHarness
         var diagnostics = await compilation
             .WithAnalyzers(
                 ImmutableArray.Create<DiagnosticAnalyzer>(new SqlLenseAnalyzer()),
-                new CompilationWithAnalyzersOptions(Options(withSchema), (ex, _, _) => exceptions.Add(ex), concurrentAnalysis: true, logAnalyzerExecutionTime: false))
+                new CompilationWithAnalyzersOptions(Options(withSchema, buildProperties), (ex, _, _) => exceptions.Add(ex), concurrentAnalysis: true, logAnalyzerExecutionTime: false))
             .GetAnalyzerDiagnosticsAsync();
         Assert.True(exceptions.Count == 0, "Analyzer threw:\n" + string.Join("\n", exceptions));
         return diagnostics.OrderBy(d => d.Location.SourceSpan.Start).ToImmutableArray();

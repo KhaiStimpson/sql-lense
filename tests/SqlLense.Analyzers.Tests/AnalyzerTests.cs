@@ -143,4 +143,55 @@ public class AnalyzerTests
     public async Task Utf8Strings_AreIgnored() => await VerifyAsync(Wrap("""
         System.ReadOnlySpan<byte> M() => "SELECT * FORM X"u8;
         """));
+
+    private static readonly string InvalidSql = Wrap("""string s = "SELECT * FORM Custmers";""");
+
+    [Fact]
+    public async Task TestProject_ByMsBuildProperty_IsSkipped()
+    {
+        var diagnostics = await GetDiagnosticsAsync(InvalidSql, buildProperties: new Dictionary<string, string>
+        {
+            [TestProjectDetector.IsTestProjectProperty] = "true",
+        });
+        Assert.Empty(diagnostics);
+    }
+
+    [Theory]
+    [InlineData("xunit.core")]
+    [InlineData("nunit.framework")]
+    [InlineData("Microsoft.VisualStudio.TestPlatform.TestFramework")]
+    public async Task TestProject_ByFrameworkReference_IsSkipped(string assemblyName)
+    {
+        var diagnostics = await GetDiagnosticsAsync(InvalidSql, extraReferences: new[] { FakeAssembly(assemblyName) });
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public async Task TestProject_WithAnalyzeTests_IsAnalyzed()
+    {
+        var diagnostics = await GetDiagnosticsAsync(
+            InvalidSql,
+            buildProperties: new Dictionary<string, string>
+            {
+                [TestProjectDetector.IsTestProjectProperty] = "true",
+                [TestProjectDetector.AnalyzeTestsProperty] = "true",
+            },
+            extraReferences: new[] { FakeAssembly("xunit.core") });
+        Assert.Equal(Descriptors.SyntaxErrorId, Assert.Single(diagnostics).Id);
+    }
+
+    [Fact]
+    public async Task IsTestProjectFalse_IsAnalyzed()
+    {
+        var diagnostics = await GetDiagnosticsAsync(InvalidSql, buildProperties: new Dictionary<string, string>
+        {
+            [TestProjectDetector.IsTestProjectProperty] = "false",
+        });
+        Assert.Equal(Descriptors.SyntaxErrorId, Assert.Single(diagnostics).Id);
+    }
+
+    private static Microsoft.CodeAnalysis.MetadataReference FakeAssembly(string name) =>
+        Microsoft.CodeAnalysis.CSharp.CSharpCompilation
+            .Create(name, references: References, options: new(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary))
+            .ToMetadataReference();
 }

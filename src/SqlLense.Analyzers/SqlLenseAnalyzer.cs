@@ -33,7 +33,7 @@ namespace SqlLense.Analyzers
         private static void OnCompilationStart(CompilationStartAnalysisContext context)
         {
             var globalOptions = context.Options.AnalyzerConfigOptionsProvider.GlobalOptions;
-            if (!SchemaResolver.IsEnabled(globalOptions))
+            if (!SchemaResolver.IsEnabled(globalOptions) || TestProjectDetector.ShouldSkip(globalOptions, context.Compilation))
             {
                 return;
             }

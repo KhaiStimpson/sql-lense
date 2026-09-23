@@ -4,6 +4,8 @@
     <CompilerVisibleProperty Include="SqlLenseEnabled" />
     <CompilerVisibleProperty Include="SqlLenseSchemaPath" />
     <CompilerVisibleProperty Include="SqlLenseDatabase" />
+    <CompilerVisibleProperty Include="SqlLenseAnalyzeTests" />
+    <CompilerVisibleProperty Include="IsTestProject" />
     <CompilerVisibleProperty Include="SolutionDir" />
   </ItemGroup>
 </Project>

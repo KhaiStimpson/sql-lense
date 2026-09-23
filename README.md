@@ -57,6 +57,10 @@ var q = /*lang=sql*/ "Select * From Users";   // force: analyze this string as S
 var s = "SELECT whatever, this is intentionally not valid";   // opt out (a quick fix inserts this)
 ```
 
+**Test projects are skipped.** Their SQL is often deliberately invalid or written against fixtures, so
+no diagnostics are reported in a project with `IsTestProject=true` (set by `Microsoft.NET.Test.Sdk`) or
+one that references xUnit, NUnit, MSTest or TUnit. Set `SqlLenseAnalyzeTests=true` to analyze them anyway.
+
 **Interpolation holes and non-constant concatenation operands** become placeholders. A hole in a value
 position becomes a parameter, and one in a name position (`FROM {table}`) is never validated. Syntax
 errors next to a placeholder are suppressed. Constant operands (`const string Columns = "Id, Name";`)
@@ -133,6 +137,7 @@ MSBuild properties (surfaced to the analyzer by the package):
 | `SqlLenseEnabled` | `false` disables analysis for the project |
 | `SqlLenseSchemaPath` | explicit snapshot file, e.g. one produced in CI by `sqllense refresh --out` |
 | `SqlLenseDatabase` | snapshot name for projects that use a different database (default `default`) |
+| `SqlLenseAnalyzeTests` | `true` analyzes test projects too (skipped by default) |
 
 ## Performance
 
