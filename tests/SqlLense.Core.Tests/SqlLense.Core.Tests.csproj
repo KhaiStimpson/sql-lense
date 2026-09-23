@@ -10,6 +10,6 @@
     <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SqlLense.Core\SqlLense.Core.csproj" />
+    <ProjectReference Include="..\..\src\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Command-line schema refresh for CI, Rider/VS Code users and Entra ID authentication. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>SqlLense.Cli</RootNamespace>
+    <AssemblyName>sqllense</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>sqllense</ToolCommandName>
+    <PackageId>SqlLense.Cli</PackageId>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" />
+  </ItemGroup>
+</Project>
