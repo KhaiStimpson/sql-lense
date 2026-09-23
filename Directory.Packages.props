@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <!-- Roslyn 4.8 == Visual Studio 2022 17.8, the minimum supported host. -->
+    <RoslynVersion>4.8.0</RoslynVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.107.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="$(RoslynVersion)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="$(RoslynVersion)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.Features" Version="$(RoslynVersion)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.EditorFeatures.Text" Version="$(RoslynVersion)" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <PackageVersion Include="Microsoft.VisualStudio.SDK" Version="17.8.37222" />
+    <PackageVersion Include="Microsoft.VSSDK.BuildTools" Version="17.8.2365" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageVersion Include="xunit" Version="2.9.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
+  </ItemGroup>
+</Project>

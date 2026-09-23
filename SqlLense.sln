@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{CB02352E-B967-49A9-BDB6-9BEE888FA909}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlLense.Core", "src\SqlLense.Core\SqlLense.Core.csproj", "{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{D935D421-4406-4FE7-9591-E40CFA341908}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlLense.Core.Tests", "tests\SqlLense.Core.Tests\SqlLense.Core.Tests.csproj", "{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0} = {CB02352E-B967-49A9-BDB6-9BEE888FA909}
+		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4} = {D935D421-4406-4FE7-9591-E40CFA341908}
+	EndGlobalSection
+EndGlobal
