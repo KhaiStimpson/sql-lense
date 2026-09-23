@@ -1,0 +1,12 @@
+root = true
+
+[*]
+indent_style = space
+insert_final_newline = true
+charset = utf-8
+
+[*.cs]
+indent_size = 4
+
+[*.{csproj,props,targets,vsct,vsixmanifest,xml,yml,json}]
+indent_size = 2
