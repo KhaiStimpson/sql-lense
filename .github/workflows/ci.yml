@@ -47,6 +47,9 @@ jobs:
           if (-not $vsix) { throw "No .vsix was produced" }
           $zip = [IO.Compression.ZipFile]::OpenRead($vsix.FullName)
           $names = $zip.Entries | ForEach-Object { $_.FullName }
+          $reader = New-Object IO.StreamReader($zip.GetEntry('extension.vsixmanifest').Open())
+          [xml]$manifest = $reader.ReadToEnd()
+          $reader.Dispose()
           $zip.Dispose()
           $names
           $required = 'extension.vsixmanifest', 'SqlLense.Vsix.dll', 'SqlLense.Vsix.pkgdef', 'SqlLense.Core.dll',
@@ -54,6 +57,13 @@ jobs:
             'Microsoft.SqlServer.TransactSql.ScriptDom.dll'
           $missing = $required | Where-Object { $names -notcontains $_ }
           if ($missing) { throw "Missing from VSIX: $($missing -join ', ')" }
+          # Roslyn only resolves analyzer dependencies that are registered as analyzer assets themselves.
+          $analyzers = $manifest.PackageManifest.Assets.Asset |
+            Where-Object { $_.Type -eq 'Microsoft.VisualStudio.Analyzer' } | ForEach-Object { $_.Path }
+          $analyzers
+          $requiredAnalyzers = 'SqlLense.Analyzers.dll', 'SqlLense.Core.dll', 'Microsoft.SqlServer.TransactSql.ScriptDom.dll'
+          $missingAnalyzers = $requiredAnalyzers | Where-Object { $analyzers -notcontains $_ }
+          if ($missingAnalyzers) { throw "Not registered as analyzer assets: $($missingAnalyzers -join ', ')" }
       - uses: actions/upload-artifact@v4
         with:
           name: vsix
