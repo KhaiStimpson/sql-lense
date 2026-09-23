@@ -34,6 +34,8 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.CodeAnalysis.EditorFeatures.Text" ExcludeAssets="runtime" />
+    <!-- Direct reference so VSSDK packs it: it only includes NuGet assemblies it can match to this project's PackageReferences. -->
+    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Condition="'$(OS)' == 'Windows_NT'" PrivateAssets="all" />
   </ItemGroup>
 
