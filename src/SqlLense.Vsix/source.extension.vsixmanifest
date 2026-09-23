@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
+  <Metadata>
+    <Identity Id="SqlLense.e27c024c-8b5a-45c5-8189-dc5dd0a3e8b2" Version="0.1.0" Language="en-US" Publisher="SqlLense" />
+    <DisplayName>SqlLense</DisplayName>
+    <Description xml:space="preserve">Finds T-SQL inside C# strings and checks it as you type: syntax errors, unknown tables, columns and procedures (against a cached database schema), with highlighting, Quick Info, completion and quick fixes.</Description>
+    <Tags>SQL, T-SQL, SQL Server, Dapper, ADO.NET, Entity Framework, Analyzer</Tags>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.8,)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.8,)">
+      <ProductArchitecture>arm64</ProductArchitecture>
+    </InstallationTarget>
+  </Installation>
+  <Dependencies>
+    <Dependency Id="Microsoft.Framework.NDP" DisplayName="Microsoft .NET Framework" d:Source="Manual" Version="[4.7.2,)" />
+  </Dependencies>
+  <Prerequisites>
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.8,)" DisplayName="Visual Studio core editor" />
+    <Prerequisite Id="Microsoft.VisualStudio.Component.Roslyn.LanguageServices" Version="[17.8,)" DisplayName="C# and Visual Basic" />
+  </Prerequisites>
+  <Assets>
+    <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
+    <Asset Type="Microsoft.VisualStudio.MefComponent" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%|" />
+    <!-- Diagnostics run wherever Roslyn runs analyzers (in-proc or the out-of-process code analysis host). -->
+    <Asset Type="Microsoft.VisualStudio.Analyzer" d:Source="Project" d:ProjectName="SqlLense.Analyzers" Path="|SqlLense.Analyzers|" />
+    <!-- Code fixes and the completion provider are discovered through MEF. -->
+    <Asset Type="Microsoft.VisualStudio.MefComponent" d:Source="Project" d:ProjectName="SqlLense.CodeFixes" Path="|SqlLense.CodeFixes|" />
+  </Assets>
+</PackageManifest>

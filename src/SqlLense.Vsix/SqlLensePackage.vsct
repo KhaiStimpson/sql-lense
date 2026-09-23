@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="guidSqlLensePackage">
+    <Groups>
+      <Group guid="guidSqlLenseCmdSet" id="ToolsMenuGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_MENU_TOOLS" />
+      </Group>
+      <Group guid="guidSqlLenseCmdSet" id="SolutionNodeGroup" priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_SOLNNODE" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidSqlLenseCmdSet" id="RefreshSchemaCommandId" priority="0x0100" type="Button">
+        <Parent guid="guidSqlLenseCmdSet" id="ToolsMenuGroup" />
+        <Strings>
+          <ButtonText>SqlLense: Refresh Database Schema</ButtonText>
+        </Strings>
+      </Button>
+      <Button guid="guidSqlLenseCmdSet" id="ConfigureCommandId" priority="0x0101" type="Button">
+        <Parent guid="guidSqlLenseCmdSet" id="ToolsMenuGroup" />
+        <Strings>
+          <ButtonText>SqlLense: Configure Connection...</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <CommandPlacements>
+    <CommandPlacement guid="guidSqlLenseCmdSet" id="RefreshSchemaCommandId" priority="0x0100">
+      <Parent guid="guidSqlLenseCmdSet" id="SolutionNodeGroup" />
+    </CommandPlacement>
+  </CommandPlacements>
+
+  <Symbols>
+    <GuidSymbol name="guidSqlLensePackage" value="{e27c024c-8b5a-45c5-8189-dc5dd0a3e8b2}" />
+    <GuidSymbol name="guidSqlLenseCmdSet" value="{b51c1e06-9893-4916-bfe0-d55730ffd58f}">
+      <IDSymbol name="ToolsMenuGroup" value="0x1020" />
+      <IDSymbol name="SolutionNodeGroup" value="0x1021" />
+      <IDSymbol name="RefreshSchemaCommandId" value="0x0100" />
+      <IDSymbol name="ConfigureCommandId" value="0x0101" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

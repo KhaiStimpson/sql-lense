@@ -36,6 +36,31 @@ namespace SqlLense.Analyzers.CSharp
         }
 
         /// <summary>
+        /// Maps a SQL range that lies entirely inside one literal segment. Used for highlighting, where a
+        /// token straddling a concatenation boundary or an interpolation hole must not be colored.
+        /// </summary>
+        public bool TryMapWithinLiteral(int sqlStart, int sqlLength, out TextSpan span)
+        {
+            span = default;
+            var segment = FindSegment(sqlStart);
+            if (segment == null || !segment.IsLiteral || sqlLength <= 0 || sqlStart + sqlLength > segment.SqlStart + segment.SqlLength)
+            {
+                return false;
+            }
+
+            var offsets = segment.GetOffsets();
+            var start = segment.SourceSpan.Start + offsets[sqlStart - segment.SqlStart];
+            var end = segment.SourceSpan.Start + offsets[sqlStart - segment.SqlStart + sqlLength];
+            if (end <= start)
+            {
+                return false;
+            }
+
+            span = TextSpan.FromBounds(start, end);
+            return true;
+        }
+
+        /// <summary>
         /// Maps a source position inside one of the literal segments to a SQL offset, or -1 when the
         /// position is not inside SQL text (e.g. inside an interpolation hole).
         /// </summary>
