@@ -1,12 +1,13 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace SqlLense.Schema
 {
     /// <summary>
     /// Computes where the schema snapshot for a solution lives. Snapshots are per user and stay out
-    /// of the repository: <c>%LOCALAPPDATA%/SqlLense/schemas/&lt;solution&gt;-&lt;hash&gt;/&lt;database&gt;.json</c>.
+    /// of the repository: <c>%LOCALAPPDATA%/SqlLense/schemas/&lt;solution folder&gt;-&lt;hash&gt;/&lt;database&gt;.json</c>.
     /// The database name defaults to <see cref="DefaultDatabaseName"/>; the MSBuild property
     /// <c>SqlLenseDatabase</c> selects a different one per project, which is how several databases
     /// per solution are supported.
@@ -37,17 +38,16 @@ namespace SqlLense.Schema
 
         /// <summary>
         /// Resolves the snapshot path. An explicit path always wins; otherwise the path is derived from
-        /// the solution file (or directory) and the database name. Returns null when there is nothing
-        /// to derive it from, e.g. a project built outside of a solution.
+        /// the solution directory and the database name. Returns null when there is no solution.
         /// </summary>
-        public static string? GetSnapshotPath(string? explicitPath, string? solutionPath, string? solutionDir, string? databaseName)
+        public static string? GetSnapshotPath(string? explicitPath, string? solutionDir, string? databaseName)
         {
             if (!string.IsNullOrWhiteSpace(explicitPath))
             {
                 return explicitPath;
             }
 
-            var solutionKey = GetSolutionKey(solutionPath, solutionDir);
+            var solutionKey = GetSolutionKey(solutionDir);
             if (solutionKey == null)
             {
                 return null;
@@ -60,30 +60,72 @@ namespace SqlLense.Schema
             string.IsNullOrWhiteSpace(databaseName) ? DefaultDatabaseName : databaseName!.Trim();
 
         /// <summary>
-        /// A stable directory name for a solution: readable prefix plus a hash of the normalized path so
-        /// two solutions with the same name in different folders do not collide.
+        /// A stable directory name for a solution folder: a readable prefix plus a hash of the
+        /// normalized path, so two solutions with the same folder name do not collide. The folder
+        /// (rather than the .sln file) is the key because analyzers installed through the VSIX do not
+        /// receive MSBuild properties and must discover the solution from source file locations.
         /// </summary>
-        public static string? GetSolutionKey(string? solutionPath, string? solutionDir)
+        public static string? GetSolutionKey(string? solutionDir)
         {
-            string? source = null;
-            string name;
-            if (!string.IsNullOrWhiteSpace(solutionPath) && !solutionPath!.EndsWith("*Undefined*", StringComparison.Ordinal))
-            {
-                source = solutionPath;
-                name = Path.GetFileNameWithoutExtension(solutionPath);
-            }
-            else if (!string.IsNullOrWhiteSpace(solutionDir) && !solutionDir!.EndsWith("*Undefined*", StringComparison.Ordinal))
-            {
-                source = solutionDir;
-                name = Path.GetFileName(solutionDir.TrimEnd('/', '\\'));
-            }
-            else
+            if (string.IsNullOrWhiteSpace(solutionDir) || solutionDir!.IndexOf("*Undefined*", StringComparison.Ordinal) >= 0)
             {
                 return null;
             }
 
-            var normalized = NormalizePath(source);
+            var normalized = NormalizePath(solutionDir);
+            var name = normalized.Substring(normalized.LastIndexOf('/') + 1);
             return SanitizeFileName(name) + "-" + Fnv1a64(normalized).ToString("x16");
+        }
+
+        /// <summary>
+        /// Walks up from a file or directory to the nearest folder containing a solution file.
+        /// Results are cached per directory; this runs at most once per folder per process.
+        /// </summary>
+        public static string? FindSolutionDirectory(string? startPath)
+        {
+            if (string.IsNullOrEmpty(startPath))
+            {
+                return null;
+            }
+
+            string? directory;
+            try
+            {
+                directory = File.Exists(startPath) ? Path.GetDirectoryName(startPath) : startPath;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+            {
+                return null;
+            }
+
+            return directory == null ? null : s_solutionDirectories.GetOrAdd(directory, FindSolutionDirectoryUncached);
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> s_solutionDirectories =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+
+        private static string? FindSolutionDirectoryUncached(string directory)
+        {
+            try
+            {
+                for (var current = new DirectoryInfo(directory); current != null; current = current.Parent)
+                {
+                    if (!current.Exists)
+                    {
+                        continue;
+                    }
+
+                    if (current.EnumerateFiles("*.sln").Any() || current.EnumerateFiles("*.slnx").Any())
+                    {
+                        return current.FullName;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+            }
+
+            return null;
         }
 
         internal static string NormalizePath(string path)

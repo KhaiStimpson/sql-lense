@@ -11,6 +11,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{D935D421
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlLense.Core.Tests", "tests\SqlLense.Core.Tests\SqlLense.Core.Tests.csproj", "{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlLense.Analyzers", "src\SqlLense.Analyzers\SqlLense.Analyzers.csproj", "{599ED89F-FBD9-4685-B995-CBF5706F4A5B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SqlLense.Analyzers.Tests", "tests\SqlLense.Analyzers.Tests\SqlLense.Analyzers.Tests.csproj", "{D3098E32-BD69-48B6-8A7A-37FE69947BAA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -28,9 +32,19 @@ Global
 		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{599ED89F-FBD9-4685-B995-CBF5706F4A5B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{599ED89F-FBD9-4685-B995-CBF5706F4A5B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{599ED89F-FBD9-4685-B995-CBF5706F4A5B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{599ED89F-FBD9-4685-B995-CBF5706F4A5B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D3098E32-BD69-48B6-8A7A-37FE69947BAA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3098E32-BD69-48B6-8A7A-37FE69947BAA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3098E32-BD69-48B6-8A7A-37FE69947BAA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3098E32-BD69-48B6-8A7A-37FE69947BAA}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{5D8A1DB4-0BF6-45F3-A601-E8F3FE383CE0} = {CB02352E-B967-49A9-BDB6-9BEE888FA909}
 		{FE6B601E-4771-4007-B6A2-4956CCCBE0A4} = {D935D421-4406-4FE7-9591-E40CFA341908}
+		{599ED89F-FBD9-4685-B995-CBF5706F4A5B} = {CB02352E-B967-49A9-BDB6-9BEE888FA909}
+		{D3098E32-BD69-48B6-8A7A-37FE69947BAA} = {D935D421-4406-4FE7-9591-E40CFA341908}
 	EndGlobalSection
 EndGlobal

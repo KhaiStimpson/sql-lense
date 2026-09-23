@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Roslyn analyzer: finds SQL in C# strings and reports syntax/schema errors. Must target netstandard2.0. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>SqlLense.Analyzers</RootNamespace>
+    <EnforceExtendedAnalyzerRules>false</EnforceExtendedAnalyzerRules>
+    <!-- The analyzer intentionally reads the per-user schema snapshot from disk (cached, stat-throttled). -->
+    <NoWarn>$(NoWarn);RS1035;RS2008</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SqlLense.Analyzers.Tests" />
+  </ItemGroup>
+</Project>
