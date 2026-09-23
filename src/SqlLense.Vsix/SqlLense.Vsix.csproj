@@ -34,8 +34,6 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.CodeAnalysis.EditorFeatures.Text" ExcludeAssets="runtime" />
-    <!-- Direct reference so VSSDK packs it: it only includes NuGet assemblies it can match to this project's PackageReferences. -->
-    <PackageReference Include="Microsoft.SqlServer.TransactSql.ScriptDom" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Condition="'$(OS)' == 'Windows_NT'" PrivateAssets="all" />
   </ItemGroup>
 
@@ -70,6 +68,16 @@
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
     <None Include="SqlLensePackage.vsct" />
   </ItemGroup>
+
+  <!--
+    The analyzer loads ScriptDom from the extension folder, but VSSDK does not pick up this transitive
+    NuGet assembly on its own. Add it after GetVsixSourceItems so the file manifest and container include it.
+  -->
+  <Target Name="IncludeScriptDomInVsix" AfterTargets="GetVsixSourceItems">
+    <ItemGroup>
+      <VSIXSourceItem Include="@(ReferencePath)" Condition="'%(ReferencePath.NuGetPackageId)' == 'Microsoft.SqlServer.TransactSql.ScriptDom'" />
+    </ItemGroup>
+  </Target>
 
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(OS)' == 'Windows_NT' and '$(VSToolsPath)' != '' and Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
