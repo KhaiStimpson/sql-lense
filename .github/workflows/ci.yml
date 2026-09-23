@@ -39,7 +39,23 @@ jobs:
       - name: Build VSIX
         run: |
           msbuild src/SqlLense.Vsix/SqlLense.Vsix.csproj -restore -p:Configuration=Release -p:DeployExtension=false -v:minimal
+      - name: Check VSIX contents
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $vsix = Get-ChildItem src/SqlLense.Vsix/bin/Release -Recurse -Filter *.vsix | Select-Object -First 1
+          if (-not $vsix) { throw "No .vsix was produced" }
+          $zip = [IO.Compression.ZipFile]::OpenRead($vsix.FullName)
+          $names = $zip.Entries | ForEach-Object { $_.FullName }
+          $zip.Dispose()
+          $names
+          $required = 'extension.vsixmanifest', 'SqlLense.Vsix.dll', 'SqlLense.Vsix.pkgdef', 'SqlLense.Core.dll',
+            'SqlLense.Analyzers.dll', 'SqlLense.CodeFixes.dll', 'SqlLense.SchemaReader.dll',
+            'Microsoft.SqlServer.TransactSql.ScriptDom.dll'
+          $missing = $required | Where-Object { $names -notcontains $_ }
+          if ($missing) { throw "Missing from VSIX: $($missing -join ', ')" }
       - uses: actions/upload-artifact@v4
         with:
           name: vsix
           path: src/SqlLense.Vsix/bin/Release/**/*.vsix
+          if-no-files-found: error
