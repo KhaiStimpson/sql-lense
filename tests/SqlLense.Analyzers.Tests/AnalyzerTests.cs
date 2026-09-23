@@ -11,6 +11,7 @@ public class AnalyzerTests
         {
             public static int Execute(this IDbConnection c, string sql, object? param = null) => 0;
             public static int Query(this IDbConnection c, string sql, object? param = null) => 0;
+            public static T ExecuteScalar<T>(this IDbConnection c, string sql, object? param = null) => default!;
         }
         """;
 
@@ -125,6 +126,18 @@ public class AnalyzerTests
         Assert.Equal("Customers", diagnostic.Properties[Descriptors.SuggestionsProperty]);
         Assert.Contains("Did you mean 'Customers'?", diagnostic.GetMessage());
     }
+
+    [Fact]
+    public async Task ReadmeExamples() => await VerifyAsync(Wrap("""
+        const string Sql = \"\"\"
+            SELECT c.Name, o.[|Totl|]
+            FROM Customers c
+            JOIN Orders o ON o.CustomerId = c.Id
+            \"\"\";
+
+        int M(IDbConnection conn, string region) =>
+            conn.ExecuteScalar<int>($"SELECT COUNT(*) FROM [|Custmers|] WHERE Region = {region}");
+        """.Replace("\\\"", "\"")), Descriptors.InvalidColumnId, Descriptors.InvalidObjectId);
 
     [Fact]
     public async Task Utf8Strings_AreIgnored() => await VerifyAsync(Wrap("""

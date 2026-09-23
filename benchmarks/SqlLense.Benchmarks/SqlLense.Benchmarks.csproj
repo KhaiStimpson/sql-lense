@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" />
+    <Compile Include="..\..\tests\SqlLense.Core.Tests\TestSchema.cs" Link="TestSchema.cs" />
+  </ItemGroup>
+</Project>

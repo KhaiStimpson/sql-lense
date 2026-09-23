@@ -1,0 +1,9 @@
+<Project>
+  <!-- Surface SqlLense settings to the analyzer (build_property.*). -->
+  <ItemGroup>
+    <CompilerVisibleProperty Include="SqlLenseEnabled" />
+    <CompilerVisibleProperty Include="SqlLenseSchemaPath" />
+    <CompilerVisibleProperty Include="SqlLenseDatabase" />
+    <CompilerVisibleProperty Include="SolutionDir" />
+  </ItemGroup>
+</Project>

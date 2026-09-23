@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Packs the analyzer, code fixes and their dependencies as the SqlLense NuGet package,
+    for command-line builds/CI and IDEs without the VSIX. Do not reference it alongside the VSIX in
+    Visual Studio, or diagnostics are reported twice.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <PackageId>SqlLense</PackageId>
+    <Description>Finds T-SQL inside C# strings and reports syntax errors and unknown tables, columns and procedures.</Description>
+    <PackageTags>sql;tsql;sqlserver;analyzer;roslyn;dapper;ado.net</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);AddAnalyzersToPackage</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="build\SqlLense.props" Pack="true" PackagePath="build\;buildTransitive\" />
+  </ItemGroup>
+  <Target Name="AddAnalyzersToPackage">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(OutputPath)SqlLense.Core.dll;$(OutputPath)SqlLense.Analyzers.dll;$(OutputPath)SqlLense.CodeFixes.dll;$(OutputPath)Microsoft.SqlServer.TransactSql.ScriptDom.dll" PackagePath="analyzers/dotnet/cs" />
+    </ItemGroup>
+  </Target>
+</Project>
