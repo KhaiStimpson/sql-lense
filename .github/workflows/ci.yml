@@ -43,3 +43,4 @@ jobs:
         with:
           name: vsix
           path: src/SqlLense.Vsix/bin/Release/**/*.vsix
+          if-no-files-found: error

@@ -1,10 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
   <!--
     Visual Studio 2022 (17.8+) extension: options, schema refresh, SQL syntax highlighting and Quick Info.
     Diagnostics, code fixes and completion come from the analyzer/code-fix assemblies packaged inside.
 
     The C# compiles on any OS; the .vsix container (VSCT, pkgdef, manifest) is only produced on Windows
     where Microsoft.VSSDK.BuildTools is imported.
+
+    The SDK is imported explicitly so Microsoft.VsSDK.targets can come after Sdk.targets: the
+    Microsoft.VSSDK.BuildTools package only sets VSToolsPath, and its targets extend
+    PrepareForRunDependsOn, which the common targets would otherwise overwrite.
   -->
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
@@ -52,7 +57,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="source.extension.vsixmanifest" SubType="Designer" />
+    <None Update="source.extension.vsixmanifest" SubType="Designer" />
     <Content Include="..\..\LICENSE" Link="LICENSE" IncludeInVSIX="true" Condition="Exists('..\..\LICENSE')" />
   </ItemGroup>
 
@@ -62,4 +67,7 @@
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
     <None Include="SqlLensePackage.vsct" />
   </ItemGroup>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(OS)' == 'Windows_NT' and '$(VSToolsPath)' != '' and Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
 </Project>
