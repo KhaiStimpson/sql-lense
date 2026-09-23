@@ -101,13 +101,32 @@ public class CompletionAndClassificationTests
     [Fact]
     public void Locator_IsStablePerSolutionAndDatabase()
     {
-        var a = SchemaLocator.GetSnapshotPath(null, "/src/app/App.sln", null, null);
-        var b = SchemaLocator.GetSnapshotPath(null, "/SRC/app/App.sln", "/src/app/", "default");
-        var c = SchemaLocator.GetSnapshotPath(null, "/src/app/App.sln", null, "Reporting");
+        var a = SchemaLocator.GetSnapshotPath(null, "/src/app", null);
+        var b = SchemaLocator.GetSnapshotPath(null, "/SRC/app/", "default");
+        var c = SchemaLocator.GetSnapshotPath(null, "/src/app", "Reporting");
         Assert.Equal(a, b);
         Assert.NotEqual(a, c);
         Assert.EndsWith("Reporting.json", c);
-        Assert.Null(SchemaLocator.GetSnapshotPath(null, null, null, null));
-        Assert.Equal("/x.json", SchemaLocator.GetSnapshotPath("/x.json", "/src/app/App.sln", null, null));
+        Assert.Contains("app-", a);
+        Assert.Null(SchemaLocator.GetSnapshotPath(null, null, null));
+        Assert.Equal("/x.json", SchemaLocator.GetSnapshotPath("/x.json", "/src/app", null));
+    }
+
+    [Fact]
+    public void Locator_FindsSolutionDirectoryFromSourceFile()
+    {
+        var root = Directory.CreateTempSubdirectory("sqllense");
+        try
+        {
+            File.WriteAllText(Path.Combine(root.FullName, "App.sln"), "");
+            var src = Directory.CreateDirectory(Path.Combine(root.FullName, "src", "App"));
+            var file = Path.Combine(src.FullName, "Repo.cs");
+            File.WriteAllText(file, "");
+            Assert.Equal(root.FullName, SchemaLocator.FindSolutionDirectory(file));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
     }
 }
