@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Visual Studio 2022 (17.8+) extension: options, schema refresh, SQL syntax highlighting and Quick Info.
+    Diagnostics, code fixes and completion come from the analyzer/code-fix assemblies packaged inside.
+
+    The C# compiles on any OS; the .vsix container (VSCT, pkgdef, manifest) is only produced on Windows
+    where Microsoft.VSSDK.BuildTools is imported.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <RootNamespace>SqlLense.Vsix</RootNamespace>
+    <AssemblyName>SqlLense.Vsix</AssemblyName>
+    <Nullable>enable</Nullable>
+    <GeneratePkgDefFile>true</GeneratePkgDefFile>
+    <UseCodebase>true</UseCodebase>
+    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
+    <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
+    <IncludeDebugSymbolsInLocalVSIXDeployment>true</IncludeDebugSymbolsInLocalVSIXDeployment>
+    <CopyBuildOutputToOutputDirectory>true</CopyBuildOutputToOutputDirectory>
+    <CopyOutputSymbolsToOutputDirectory>true</CopyOutputSymbolsToOutputDirectory>
+    <VSSDKTargetPlatformRegRootSuffix>Exp</VSSDKTargetPlatformRegRootSuffix>
+    <!-- VSTHRD analyzers ship with the VS SDK; keep their guidance but do not fail the build on it. -->
+    <NoWarn>$(NoWarn);VSTHRD010;VSTHRD100;VSTHRD110</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Visual Studio provides these at runtime: compile against them only. -->
+    <PackageReference Include="Microsoft.VisualStudio.SDK" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.CodeAnalysis.EditorFeatures.Text" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.VSSDK.BuildTools" Condition="'$(OS)' == 'Windows_NT'" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Design" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" />
+    <ProjectReference Include="..\SqlLense.Analyzers\SqlLense.Analyzers.csproj" />
+    <ProjectReference Include="..\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" />
+    <ProjectReference Include="..\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="source.extension.vsixmanifest" SubType="Designer" />
+    <Content Include="..\..\LICENSE" Link="LICENSE" IncludeInVSIX="true" Condition="Exists('..\..\LICENSE')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <VSCTCompile Include="SqlLensePackage.vsct" ResourceName="Menus.ctmenu" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+    <None Include="SqlLensePackage.vsct" />
+  </ItemGroup>
+</Project>
