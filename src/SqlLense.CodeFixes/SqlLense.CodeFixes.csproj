@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Code fixes and SQL completion. Loaded by Roslyn from the analyzer package and, for completion, via MEF from the VSIX. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>SqlLense.CodeFixes</RootNamespace>
+    <NoWarn>$(NoWarn);RS1035;RS2008;RS1038</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SqlLense.Analyzers\SqlLense.Analyzers.csproj" />
+  </ItemGroup>
+</Project>
