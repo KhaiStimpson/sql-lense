@@ -12,7 +12,7 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\SqlLense.Analyzers\SqlLense.Analyzers.csproj" />
+    <ProjectReference Include="..\..\src\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" />
     <Compile Include="..\SqlLense.Core.Tests\TestSchema.cs" Link="TestSchema.cs" />
   </ItemGroup>
 </Project>
