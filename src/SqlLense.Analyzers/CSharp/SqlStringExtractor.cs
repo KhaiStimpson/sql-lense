@@ -13,15 +13,19 @@ namespace SqlLense.Analyzers.CSharp
     /// <summary>A C# string expression recognised as SQL.</summary>
     public sealed class SqlStringCandidate
     {
-        internal SqlStringCandidate(ExpressionSyntax expression, string sql, SqlSourceMap map, bool isKnownSqlContext)
+        internal SqlStringCandidate(ExpressionSyntax expression, string sql, SqlSourceMap map, bool isKnownSqlContext, TextSpan span)
         {
             Expression = expression;
             Sql = sql;
             Map = map;
             IsKnownSqlContext = isKnownSqlContext;
+            Span = map.Bounds.IsEmpty ? span : TextSpan.FromBounds(Math.Min(span.Start, map.Bounds.Start), Math.Max(span.End, map.Bounds.End));
         }
 
-        /// <summary>The outermost expression: a literal, interpolated string or concatenation.</summary>
+        /// <summary>
+        /// The outermost expression: a literal, interpolated string, concatenation or format call. For a
+        /// string built up over several statements, the first piece that starts like SQL.
+        /// </summary>
         public ExpressionSyntax Expression { get; }
 
         public string Sql { get; }
@@ -30,6 +34,12 @@ namespace SqlLense.Analyzers.CSharp
 
         /// <summary>True when an API, name or comment says this is SQL (vs. the text heuristics alone).</summary>
         public bool IsKnownSqlContext { get; }
+
+        /// <summary>
+        /// Source covered by the SQL: <see cref="Expression"/>, every statement of a built-up string, and the
+        /// initializers of inlined locals.
+        /// </summary>
+        public TextSpan Span { get; }
     }
 
     public enum SqlDetectionMode
@@ -42,9 +52,11 @@ namespace SqlLense.Analyzers.CSharp
     }
 
     /// <summary>
-    /// Finds SQL in C# string expressions: regular, verbatim, raw and interpolated literals plus
-    /// <c>+</c> concatenations of them (and of constants). Everything is syntactic except resolving
-    /// non-literal concatenation operands, which uses the semantic model only when one is supplied.
+    /// Finds SQL in C# string expressions: regular, verbatim, raw and interpolated literals,
+    /// <c>+</c> concatenations, <c>string.Format</c>/<c>Concat</c> and composite format strings, locals
+    /// that hold a string, and strings built up over several statements with <c>+=</c> or a
+    /// <c>StringBuilder</c>. Everything is syntactic except resolving constants, which uses the semantic
+    /// model only when one is supplied.
     /// </summary>
     public static class SqlStringExtractor
     {
@@ -62,6 +74,12 @@ namespace SqlLense.Analyzers.CSharp
             "ExecuteSqlCommandAsync",
         };
 
+        /// <summary>APIs whose SQL string uses <c>{0}</c> items as parameters (never substituted as text).</summary>
+        private static readonly HashSet<string> s_formatParameterMethodNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "FromSqlRaw", "ExecuteSqlRaw", "ExecuteSqlRawAsync", "SqlQueryRaw", "SqlQuery", "ExecuteSqlCommand", "ExecuteSqlCommandAsync",
+        };
+
         private static readonly HashSet<string> s_sqlCommandTypes = new HashSet<string>(StringComparer.Ordinal)
         {
             "SqlCommand", "SqlDataAdapter", "OleDbCommand", "OdbcCommand", "DbCommand", "CommandDefinition",
@@ -74,7 +92,8 @@ namespace SqlLense.Analyzers.CSharp
 
         /// <summary>
         /// True for the outermost node of a string expression: a literal or interpolated string that is
-        /// not an operand of a concatenation, or the top of a concatenation chain.
+        /// not an operand of a concatenation, the top of a concatenation chain, or the first string
+        /// argument of a <c>string.Format</c>/<c>string.Concat</c> call (which stands for the call).
         /// </summary>
         public static bool IsRootStringExpression(ExpressionSyntax node)
         {
@@ -84,13 +103,21 @@ namespace SqlLense.Analyzers.CSharp
                 return false;
             }
 
-            return node.Kind() switch
+            var isCandidate = node.Kind() switch
             {
                 SyntaxKind.StringLiteralExpression => true,
                 SyntaxKind.InterpolatedStringExpression => true,
                 SyntaxKind.AddExpression => ContainsStringLeaf((BinaryExpressionSyntax)node),
                 _ => false,
             };
+
+            if (!isCandidate)
+            {
+                return false;
+            }
+
+            var outer = Outer(node);
+            return outer == node || FirstRootCandidate(outer) == node;
         }
 
         /// <summary>Finds the root string expression containing <paramref name="position"/>, if any.</summary>
@@ -119,57 +146,279 @@ namespace SqlLense.Analyzers.CSharp
                 }
             }
 
-            return candidate;
+            return candidate == null ? null : Outer(candidate);
         }
 
+        /// <summary>
+        /// Extracts the SQL of a root string expression. A piece of a string built up over several
+        /// statements yields the whole statement, but only from its first piece that starts like SQL, so
+        /// that each statement is reported once.
+        /// </summary>
         public static SqlStringCandidate? TryExtract(
             ExpressionSyntax root,
             SemanticModel? semanticModel,
             SqlDetectionMode mode,
+            CancellationToken cancellationToken) =>
+            TryExtractCore(root, semanticModel, mode, containing: false, depth: 0, cancellationToken);
+
+        /// <summary>
+        /// Like <see cref="TryExtract"/>, but for any piece of a built-up string (for example the
+        /// <c>" WHERE c."</c> being typed in <c>sql += " WHERE c."</c>) returns the whole statement.
+        /// </summary>
+        public static SqlStringCandidate? TryExtractContaining(
+            ExpressionSyntax root,
+            SemanticModel? semanticModel,
+            SqlDetectionMode mode,
+            CancellationToken cancellationToken) =>
+            TryExtractCore(root, semanticModel, mode, containing: true, depth: 0, cancellationToken);
+
+        private static SqlStringCandidate? TryExtractCore(
+            ExpressionSyntax node,
+            SemanticModel? semanticModel,
+            SqlDetectionMode mode,
+            bool containing,
+            int depth,
             CancellationToken cancellationToken)
         {
-            var leaves = new List<ExpressionSyntax>(4);
-            CollectLeaves(root, leaves);
-            if (leaves.Count == 0 || !HasStringLeaf(leaves))
+            var outer = Outer(node);
+            if (!IsStringShapedOuter(outer))
             {
                 return null;
             }
 
-            // Gate 1 (cheap): does the text start with a statement keyword?
-            var prefix = FirstText(leaves, semanticModel, cancellationToken);
-            var forced = false;
-            if (prefix == null || !SqlHeuristics.StartsWithStatementKeyword(prefix))
+            // Gate 1 (cheap): does the text start with a statement keyword? Pieces such as " WHERE ..."
+            // stop here unless an editor feature asks for the statement they belong to.
+            var prefix = FirstText(outer, semanticModel, depth, cancellationToken);
+            Directive? directives = null;
+            var passes = prefix != null && SqlHeuristics.StartsWithStatementKeyword(prefix);
+            if (!passes)
             {
-                forced = HasDirective(root, Directive.LangSql);
-                if (!forced)
+                directives = GetDirectives(node, outer);
+                passes = (directives & Directive.LangSql) != 0;
+            }
+            if (!passes && !containing)
+            {
+                return null;
+            }
+
+            if (SqlStringFlow.TryGetTarget(outer, out var name, out var statement, out var isDefinition) &&
+                (!isDefinition || SqlStringFlow.IsAppendedAfter(statement, name)))
+            {
+                var chain = SqlStringFlow.FindChain(outer, semanticModel, cancellationToken);
+                if (chain != null && chain.Fragments.Count > 1)
                 {
-                    return null;
+                    var owner = FindOwner(chain, semanticModel, depth, cancellationToken);
+                    if (owner != null && (owner.Anchor == outer || containing))
+                    {
+                        var candidate = TryExtractChain(chain, owner, semanticModel, mode, depth, cancellationToken, out var unknownPrefix);
+                        if (candidate != null || !unknownPrefix || owner.Anchor != outer)
+                        {
+                            return candidate;
+                        }
+
+                        // The pieces before this one make the start unknown (say, a parameter used as a
+                        // prefix): fall back to this piece on its own.
+                    }
+                    else if (owner != null)
+                    {
+                        return null;
+                    }
                 }
             }
 
-            if (HasDirective(root, Directive.Ignore))
+            return passes ? TryExtractExpression(outer, directives ?? GetDirectives(node, outer), semanticModel, mode, depth, cancellationToken) : null;
+        }
+
+        private static SqlStringCandidate? TryExtractExpression(
+            ExpressionSyntax outer,
+            Directive directives,
+            SemanticModel? semanticModel,
+            SqlDetectionMode mode,
+            int depth,
+            CancellationToken cancellationToken)
+        {
+            var forced = (directives & Directive.LangSql) != 0;
+            if ((directives & Directive.Ignore) != 0)
             {
                 return null;
             }
 
             // Gate 2: build the text and apply the full heuristics.
-            if (!TryBuild(leaves, semanticModel, cancellationToken, out var sql, out var map))
+            var builder = new SqlTextBuilder(semanticModel, depth, cancellationToken);
+            builder.BeginFragment();
+            builder.AddExpression(outer);
+            if (!builder.TryBuild(out var sql, out var map))
             {
                 return null;
             }
 
-            var known = forced || mode == SqlDetectionMode.Lenient || IsSqlContext(root) || HasDirective(root, Directive.LangSql);
+            var known = forced || mode == SqlDetectionMode.Lenient || IsSqlContext(outer);
             if (!SqlHeuristics.LooksLikeSql(sql, known) && !forced)
             {
                 return null;
             }
 
-            return new SqlStringCandidate(root, sql, map, known && mode != SqlDetectionMode.Lenient);
+            return new SqlStringCandidate(outer, sql, map, known && mode != SqlDetectionMode.Lenient, outer.Span);
         }
 
-        // ------------------------------------------------------------------ leaves
+        private static SqlStringFlow.Fragment? FindOwner(SqlStringFlow.Chain chain, SemanticModel? semanticModel, int depth, CancellationToken cancellationToken)
+        {
+            foreach (var fragment in chain.Fragments)
+            {
+                if (fragment.Anchor == null || fragment.Kind == SqlStringFlow.FragmentKind.SelfAppend)
+                {
+                    continue;
+                }
 
-        private static void CollectLeaves(ExpressionSyntax node, List<ExpressionSyntax> leaves)
+                var text = FirstText(fragment.Anchor, semanticModel, depth, cancellationToken);
+                if ((text != null && SqlHeuristics.StartsWithStatementKeyword(text)) || HasDirective(fragment.Anchor, fragment.Anchor, Directive.LangSql))
+                {
+                    return fragment;
+                }
+            }
+
+            return null;
+        }
+
+        private static SqlStringCandidate? TryExtractChain(
+            SqlStringFlow.Chain chain,
+            SqlStringFlow.Fragment owner,
+            SemanticModel? semanticModel,
+            SqlDetectionMode mode,
+            int depth,
+            CancellationToken cancellationToken,
+            out bool unknownPrefix)
+        {
+            unknownPrefix = false;
+            var forced = false;
+            var start = int.MaxValue;
+            var end = 0;
+            var builder = new SqlTextBuilder(semanticModel, depth, cancellationToken);
+            foreach (var fragment in chain.Fragments)
+            {
+                if (fragment.Anchor != null)
+                {
+                    var directives = GetDirectives(fragment.Anchor);
+                    if ((directives & Directive.Ignore) != 0)
+                    {
+                        return null;
+                    }
+
+                    forced |= (directives & Directive.LangSql) != 0;
+                }
+
+                start = Math.Min(start, fragment.Span.Start);
+                end = Math.Max(end, fragment.Span.End);
+                builder.BeginFragment();
+                switch (fragment.Kind)
+                {
+                    case SqlStringFlow.FragmentKind.Expression:
+                        builder.AddExpression(fragment.Anchor!);
+                        break;
+                    case SqlStringFlow.FragmentKind.SelfAppend:
+                        builder.AddExpression(fragment.Anchor!, skipFirstLeaf: true);
+                        break;
+                    case SqlStringFlow.FragmentKind.Format:
+                        builder.AddFormatCall(fragment.Call!, fragment.FormatIndex, substituteArguments: true);
+                        break;
+                    case SqlStringFlow.FragmentKind.Text:
+                        builder.AddText(fragment.Text!, fragment.Span);
+                        break;
+                    default:
+                        builder.AddPlaceholder(fragment.Span);
+                        break;
+                }
+            }
+
+            if (!builder.TryBuild(out var sql, out var map))
+            {
+                return null;
+            }
+
+            if (!SqlHeuristics.StartsWithStatementKeyword(sql) && !forced)
+            {
+                unknownPrefix = true;
+                return null;
+            }
+
+            var known = forced || mode == SqlDetectionMode.Lenient || IsSqlName(chain.Name) || IsSqlContext(owner.Anchor!);
+            if (!SqlHeuristics.LooksLikeSql(sql, known) && !forced)
+            {
+                return null;
+            }
+
+            return new SqlStringCandidate(owner.Anchor!, sql, map, known && mode != SqlDetectionMode.Lenient, TextSpan.FromBounds(start, end));
+        }
+
+        /// <summary>
+        /// True when <paramref name="expression"/> (the initializer of an inlined local) is reported as SQL
+        /// on its own, so whoever inlines it should not report the same problems again.
+        /// </summary>
+        internal static bool IsAnalyzedOnItsOwn(ExpressionSyntax expression, SemanticModel? semanticModel, int depth, CancellationToken cancellationToken)
+        {
+            var root = FirstRootCandidate(expression);
+            return IsRootStringExpression(root) &&
+                TryExtractCore(root, semanticModel, SqlDetectionMode.Diagnostics, containing: false, depth, cancellationToken) != null;
+        }
+
+        // ------------------------------------------------------------------ shape
+
+        /// <summary>
+        /// Climbs from a string expression to the expression whose value is the whole string: through
+        /// <c>+</c>, the format argument of <c>string.Format</c> and the arguments of <c>string.Concat</c>.
+        /// </summary>
+        internal static ExpressionSyntax Outer(ExpressionSyntax node)
+        {
+            var current = node;
+            while (true)
+            {
+                var parent = SkipParenthesesUp(current).Parent;
+                if (parent is BinaryExpressionSyntax binary && binary.IsKind(SyntaxKind.AddExpression))
+                {
+                    current = binary;
+                    continue;
+                }
+
+                if (parent is ArgumentSyntax { Parent: ArgumentListSyntax list } argument && list.Parent is InvocationExpressionSyntax invocation &&
+                    (IsStringConcat(invocation) || (IsStringFormat(invocation, out var formatIndex) && list.Arguments.IndexOf(argument) == formatIndex)))
+                {
+                    current = invocation;
+                    continue;
+                }
+
+                return current;
+            }
+        }
+
+        /// <summary>The node that represents <paramref name="outer"/> among the analyzer's root nodes.</summary>
+        private static ExpressionSyntax FirstRootCandidate(ExpressionSyntax outer)
+        {
+            outer = SkipParentheses(outer);
+            if (outer is InvocationExpressionSyntax invocation)
+            {
+                if (IsStringFormat(invocation, out var formatIndex) && formatIndex < invocation.ArgumentList.Arguments.Count)
+                {
+                    return FirstRootCandidate(invocation.ArgumentList.Arguments[formatIndex].Expression);
+                }
+
+                if (IsStringConcat(invocation))
+                {
+                    foreach (var argument in invocation.ArgumentList.Arguments)
+                    {
+                        if (SqlStringFlow.IsStringShaped(argument.Expression))
+                        {
+                            return FirstRootCandidate(argument.Expression);
+                        }
+                    }
+                }
+            }
+
+            return outer;
+        }
+
+        private static bool IsStringShapedOuter(ExpressionSyntax outer) => SqlStringFlow.IsStringShaped(outer);
+
+        internal static void CollectLeaves(ExpressionSyntax node, List<ExpressionSyntax> leaves)
         {
             while (node is ParenthesizedExpressionSyntax parenthesized)
             {
@@ -187,7 +436,7 @@ namespace SqlLense.Analyzers.CSharp
             }
         }
 
-        private static bool ContainsStringLeaf(BinaryExpressionSyntax node)
+        internal static bool ContainsStringLeaf(BinaryExpressionSyntax node)
         {
             ExpressionSyntax current = node;
             while (true)
@@ -216,11 +465,6 @@ namespace SqlLense.Analyzers.CSharp
         {
             var leaves = new List<ExpressionSyntax>();
             CollectLeaves(node, leaves);
-            return HasStringLeaf(leaves);
-        }
-
-        private static bool HasStringLeaf(List<ExpressionSyntax> leaves)
-        {
             foreach (var leaf in leaves)
             {
                 if (IsStringLeaf(leaf))
@@ -232,36 +476,154 @@ namespace SqlLense.Analyzers.CSharp
             return false;
         }
 
-        private static bool IsStringLeaf(ExpressionSyntax node) =>
+        /// <summary>A (non-UTF-8) string literal, interpolated string, or <c>string.Format</c>/<c>Concat</c> call.</summary>
+        internal static bool IsStringLeaf(ExpressionSyntax node) =>
             (node.IsKind(SyntaxKind.StringLiteralExpression) && !IsUtf8(((LiteralExpressionSyntax)node).Token)) ||
-            node.IsKind(SyntaxKind.InterpolatedStringExpression);
+            node.IsKind(SyntaxKind.InterpolatedStringExpression) ||
+            (node is InvocationExpressionSyntax invocation && (IsStringFormat(invocation, out _) || IsStringConcat(invocation)));
 
-        private static bool IsUtf8(SyntaxToken token) =>
+        internal static bool IsUtf8(SyntaxToken token) =>
             token.IsKind(SyntaxKind.Utf8StringLiteralToken) ||
             token.IsKind(SyntaxKind.Utf8SingleLineRawStringLiteralToken) ||
             token.IsKind(SyntaxKind.Utf8MultiLineRawStringLiteralToken);
 
-        private static string? FirstText(List<ExpressionSyntax> leaves, SemanticModel? semanticModel, CancellationToken cancellationToken)
+        /// <summary><c>string.Format(format, ...)</c> or <c>string.Format(provider, format, ...)</c>.</summary>
+        internal static bool IsStringFormat(InvocationExpressionSyntax invocation, out int formatIndex)
         {
-            var first = leaves[0];
-            switch (first)
+            formatIndex = 0;
+            if (!(invocation.Expression is MemberAccessExpressionSyntax access) || access.Name.Identifier.ValueText != "Format" ||
+                !IsStringType(access.Expression))
+            {
+                return false;
+            }
+
+            var arguments = invocation.ArgumentList.Arguments;
+            if (arguments.Count >= 2 && !SqlStringFlow.IsStringShaped(arguments[0].Expression) && SqlStringFlow.IsStringShaped(arguments[1].Expression))
+            {
+                formatIndex = 1;
+            }
+
+            return arguments.Count > 0;
+        }
+
+        internal static bool IsStringConcat(InvocationExpressionSyntax invocation) =>
+            invocation.Expression is MemberAccessExpressionSyntax access && access.Name.Identifier.ValueText == "Concat" &&
+            IsStringType(access.Expression) && invocation.ArgumentList.Arguments.Count > 0;
+
+        internal static bool IsStringEmpty(MemberAccessExpressionSyntax member) =>
+            member.Name.Identifier.ValueText == "Empty" && IsStringType(member.Expression);
+
+        private static bool IsStringType(ExpressionSyntax expression) => expression switch
+        {
+            PredefinedTypeSyntax predefined => predefined.Keyword.IsKind(SyntaxKind.StringKeyword),
+            IdentifierNameSyntax identifier => identifier.Identifier.ValueText == "String",
+            MemberAccessExpressionSyntax member => member.Name.Identifier.ValueText == "String" && member.Expression is IdentifierNameSyntax { Identifier.ValueText: "System" },
+            _ => false,
+        };
+
+        /// <summary>
+        /// Recognizes the format string argument of a call that treats <c>{0}</c> items specially:
+        /// <c>string.Format</c> and <c>AppendFormat</c> (items are replaced by the argument text) or EF's
+        /// <c>FromSqlRaw</c>/<c>ExecuteSqlRaw</c>/... (items become parameters).
+        /// </summary>
+        internal static bool TryGetFormatCall(ExpressionSyntax format, out InvocationExpressionSyntax invocation, out int formatIndex, out bool substituteArguments)
+        {
+            invocation = null!;
+            formatIndex = 0;
+            substituteArguments = false;
+            if (!(SkipParenthesesUp(format).Parent is ArgumentSyntax { Parent: ArgumentListSyntax list } argument) ||
+                !(list.Parent is InvocationExpressionSyntax call))
+            {
+                return false;
+            }
+
+            var index = list.Arguments.IndexOf(argument);
+            var name = MethodName(call.Expression);
+            if (IsStringFormat(call, out var stringFormatIndex))
+            {
+                if (index != stringFormatIndex)
+                {
+                    return false;
+                }
+
+                substituteArguments = true;
+            }
+            else if (name == "AppendFormat")
+            {
+                if (index > 1 || (index == 1 && SqlStringFlow.IsStringShaped(list.Arguments[0].Expression)))
+                {
+                    return false;
+                }
+
+                substituteArguments = true;
+            }
+            else if (name == null || !s_formatParameterMethodNames.Contains(name) || index > 1)
+            {
+                return false;
+            }
+
+            invocation = call;
+            formatIndex = index;
+            return true;
+        }
+
+        // ------------------------------------------------------------------ gate
+
+        /// <summary>The text at the start of the string, for the cheap keyword check; null when unknown.</summary>
+        private static string? FirstText(ExpressionSyntax expression, SemanticModel? semanticModel, int depth, CancellationToken cancellationToken)
+        {
+            expression = SkipParentheses(expression);
+            switch (expression)
             {
                 case LiteralExpressionSyntax literal when literal.IsKind(SyntaxKind.StringLiteralExpression):
                     return IsUtf8(literal.Token) ? null : literal.Token.ValueText;
+
                 case InterpolatedStringExpressionSyntax interpolated:
                     return interpolated.Contents.Count > 0 && interpolated.Contents[0] is InterpolatedStringTextSyntax text
                         ? text.TextToken.ValueText
                         : null;
-                default:
-                    // "BaseQuery + \" WHERE ...\"": only worth binding when the rest looks like SQL clauses.
-                    if (semanticModel == null || leaves.Count < 2 || !OtherLeavesLookLikeSqlClauses(leaves))
+
+                case InvocationExpressionSyntax invocation when IsStringFormat(invocation, out var formatIndex):
+                    return formatIndex < invocation.ArgumentList.Arguments.Count
+                        ? FirstText(invocation.ArgumentList.Arguments[formatIndex].Expression, semanticModel, depth, cancellationToken)
+                        : null;
+
+                case InvocationExpressionSyntax invocation when IsStringConcat(invocation):
+                    return FirstText(invocation.ArgumentList.Arguments[0].Expression, semanticModel, depth, cancellationToken);
+
+                case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.AddExpression):
+                    var leaves = new List<ExpressionSyntax>(4);
+                    CollectLeaves(binary, leaves);
+                    if (IsStringLeaf(leaves[0]))
                     {
-                        return null;
+                        return FirstText(leaves[0], semanticModel, depth, cancellationToken);
                     }
 
-                    var constant = semanticModel.GetConstantValue(first, cancellationToken);
-                    return constant.HasValue ? constant.Value as string : null;
+                    // "BaseQuery + \" WHERE ...\"": only worth resolving when the rest looks like SQL clauses.
+                    return leaves.Count >= 2 && OtherLeavesLookLikeSqlClauses(leaves)
+                        ? OperandText(leaves[0], semanticModel, depth, cancellationToken)
+                        : null;
+
+                default:
+                    return OperandText(expression, semanticModel, depth, cancellationToken);
             }
+        }
+
+        private static string? OperandText(ExpressionSyntax operand, SemanticModel? semanticModel, int depth, CancellationToken cancellationToken)
+        {
+            if (semanticModel != null)
+            {
+                var constant = semanticModel.GetConstantValue(operand, cancellationToken);
+                if (constant.HasValue)
+                {
+                    return constant.Value as string;
+                }
+            }
+
+            return operand is IdentifierNameSyntax identifier && depth < SqlTextBuilder.MaxInlineDepth &&
+                   SqlStringFlow.TryFindInlinableLocal(identifier, out var initializer)
+                ? FirstText(initializer, semanticModel, depth + 1, cancellationToken)
+                : null;
         }
 
         private static bool OtherLeavesLookLikeSqlClauses(List<ExpressionSyntax> leaves)
@@ -302,205 +664,7 @@ namespace SqlLense.Analyzers.CSharp
             return false;
         }
 
-        // ------------------------------------------------------------------ building
-
-        private readonly struct Part
-        {
-            public Part(string? text, SyntaxToken token, LiteralFlavor flavor, bool doubledBraces, TextSpan span, bool isLiteral)
-            {
-                Text = text;
-                Token = token;
-                Flavor = flavor;
-                DoubledBraces = doubledBraces;
-                Span = span;
-                IsLiteral = isLiteral;
-            }
-
-            /// <summary>Null for a placeholder (interpolation hole or non-constant operand).</summary>
-            public string? Text { get; }
-
-            public SyntaxToken Token { get; }
-
-            public LiteralFlavor Flavor { get; }
-
-            public bool DoubledBraces { get; }
-
-            public TextSpan Span { get; }
-
-            public bool IsLiteral { get; }
-        }
-
-        private static bool TryBuild(
-            List<ExpressionSyntax> leaves,
-            SemanticModel? semanticModel,
-            CancellationToken cancellationToken,
-            out string sql,
-            out SqlSourceMap map)
-        {
-            var parts = new List<Part>(leaves.Count + 2);
-            foreach (var leaf in leaves)
-            {
-                switch (leaf)
-                {
-                    case LiteralExpressionSyntax literal when literal.IsKind(SyntaxKind.StringLiteralExpression):
-                        if (IsUtf8(literal.Token))
-                        {
-                            sql = string.Empty;
-                            map = null!;
-                            return false;
-                        }
-
-                        parts.Add(new Part(literal.Token.ValueText, literal.Token, FlavorOf(literal.Token), false, literal.Token.Span, isLiteral: true));
-                        break;
-
-                    case InterpolatedStringExpressionSyntax interpolated:
-                        var flavor = FlavorOf(interpolated.StringStartToken);
-                        var doubledBraces = flavor != LiteralFlavor.Raw;
-                        foreach (var content in interpolated.Contents)
-                        {
-                            if (content is InterpolatedStringTextSyntax text)
-                            {
-                                parts.Add(new Part(text.TextToken.ValueText, text.TextToken, flavor, doubledBraces, text.TextToken.Span, isLiteral: true));
-                            }
-                            else
-                            {
-                                parts.Add(new Part(null, default, default, false, content.Span, isLiteral: false));
-                            }
-                        }
-
-                        break;
-
-                    default:
-                        string? constant = null;
-                        if (semanticModel != null)
-                        {
-                            var value = semanticModel.GetConstantValue(leaf, cancellationToken);
-                            constant = value.HasValue ? value.Value as string : null;
-                        }
-
-                        parts.Add(new Part(constant, default, default, false, leaf.Span, isLiteral: false));
-                        break;
-                }
-            }
-
-            var sb = new StringBuilder();
-            var segments = new List<SqlSourceMap.Segment>(parts.Count);
-            var placeholderIndex = 0;
-            for (var i = 0; i < parts.Count; i++)
-            {
-                var part = parts[i];
-                var start = sb.Length;
-                if (part.IsLiteral)
-                {
-                    sb.Append(part.Text);
-                    segments.Add(SqlSourceMap.Segment.Literal(start, part.Token, part.Text!, part.Flavor, part.DoubledBraces));
-                    continue;
-                }
-
-                var text = part.Text ?? Placeholder(sb, i + 1 < parts.Count ? parts[i + 1].Text : null, placeholderIndex++);
-                sb.Append(text);
-                segments.Add(SqlSourceMap.Segment.Opaque(start, text.Length, part.Span));
-            }
-
-            sql = sb.ToString();
-            map = new SqlSourceMap(segments);
-            return true;
-        }
-
-        /// <summary>
-        /// Chooses placeholder text that keeps the surrounding SQL parseable: a variable in value
-        /// positions, a bare identifier next to '.' or inside brackets/quotes, a number after TOP.
-        /// </summary>
-        private static string Placeholder(StringBuilder before, string? after, int index)
-        {
-            var previous = LastNonWhitespace(before);
-            var next = after == null ? '\0' : FirstNonWhitespace(after);
-            var name = SqlEngine.PlaceholderMarker + index.ToString(System.Globalization.CultureInfo.InvariantCulture);
-
-            if (InsideQuotes(before))
-            {
-                return name;
-            }
-
-            if (previous == '.' || previous == '[' || next == '.' || next == ']' || previous == '#')
-            {
-                return name;
-            }
-
-            if (EndsWithWord(before, "TOP"))
-            {
-                return "1";
-            }
-
-            return "@" + name;
-        }
-
-        private static bool InsideQuotes(StringBuilder sb)
-        {
-            var quotes = 0;
-            for (var i = 0; i < sb.Length; i++)
-            {
-                if (sb[i] == '\'')
-                {
-                    quotes++;
-                }
-            }
-
-            return (quotes & 1) == 1;
-        }
-
-        private static char LastNonWhitespace(StringBuilder sb)
-        {
-            for (var i = sb.Length - 1; i >= 0; i--)
-            {
-                if (!char.IsWhiteSpace(sb[i]))
-                {
-                    return sb[i];
-                }
-            }
-
-            return '\0';
-        }
-
-        private static char FirstNonWhitespace(string text)
-        {
-            foreach (var c in text)
-            {
-                if (!char.IsWhiteSpace(c))
-                {
-                    return c;
-                }
-            }
-
-            return '\0';
-        }
-
-        private static bool EndsWithWord(StringBuilder sb, string word)
-        {
-            var end = sb.Length;
-            while (end > 0 && char.IsWhiteSpace(sb[end - 1]))
-            {
-                end--;
-            }
-
-            var start = end - word.Length;
-            if (start < 0 || (start > 0 && char.IsLetterOrDigit(sb[start - 1])))
-            {
-                return false;
-            }
-
-            for (var i = 0; i < word.Length; i++)
-            {
-                if (char.ToUpperInvariant(sb[start + i]) != word[i])
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static LiteralFlavor FlavorOf(SyntaxToken token)
+        internal static LiteralFlavor FlavorOf(SyntaxToken token)
         {
             switch (token.Kind())
             {
@@ -602,6 +766,16 @@ namespace SqlLense.Analyzers.CSharp
             _ => string.Empty,
         };
 
+        internal static ExpressionSyntax SkipParentheses(ExpressionSyntax node)
+        {
+            while (node is ParenthesizedExpressionSyntax parenthesized)
+            {
+                node = parenthesized.Expression;
+            }
+
+            return node;
+        }
+
         private static SyntaxNode SkipParenthesesUp(SyntaxNode node)
         {
             while (node.Parent is ParenthesizedExpressionSyntax parenthesized)
@@ -614,60 +788,108 @@ namespace SqlLense.Analyzers.CSharp
 
         // ------------------------------------------------------------------ comment directives
 
+        [Flags]
         private enum Directive
         {
-            LangSql,
-            Ignore,
+            None = 0,
+            LangSql = 1,
+            Ignore = 2,
         }
+
+        /// <summary>True when a <c>sqllense:ignore</c> comment applies to the expression.</summary>
+        internal static bool IsIgnored(ExpressionSyntax expression) => (GetDirectives(expression) & Directive.Ignore) != 0;
+
+        private static bool HasDirective(ExpressionSyntax node, ExpressionSyntax outer, Directive directive) =>
+            (GetDirectives(node, outer) & directive) != 0;
+
+        private static Directive GetDirectives(ExpressionSyntax node, ExpressionSyntax outer) =>
+            node == outer ? GetDirectives(outer) : GetDirectives(outer) | GetDirectives(node);
 
         /// <summary>
         /// Looks for <c>/*lang=sql*/</c> or <c>// sqllense:ignore</c> style comments immediately before the
         /// string, or on the line above the containing statement or member.
         /// </summary>
-        private static bool HasDirective(ExpressionSyntax root, Directive directive)
+        private static Directive GetDirectives(ExpressionSyntax root)
         {
             var first = root.GetFirstToken();
-            if (Matches(first.LeadingTrivia, directive) || Matches(first.GetPreviousToken().TrailingTrivia, directive))
+            var found = Scan(first.LeadingTrivia);
+
+            // Finding the previous token is a tree walk; only do it when a comment can be there.
+            if (MayEndWithComment(first))
             {
-                return true;
+                found |= Scan(first.GetPreviousToken().TrailingTrivia);
             }
 
             for (SyntaxNode? node = root.Parent; node != null; node = node.Parent)
             {
                 if (node is StatementSyntax || node is MemberDeclarationSyntax)
                 {
-                    return Matches(node.GetFirstToken().LeadingTrivia, directive);
+                    found |= Scan(node.GetFirstToken().LeadingTrivia);
+                    break;
                 }
             }
 
-            return false;
+            return found;
         }
 
-        private static bool Matches(SyntaxTriviaList trivia, Directive directive)
+        /// <summary>
+        /// The previous token's trailing trivia is the rest of its line. Checks that line (the current one,
+        /// or the one above when <paramref name="token"/>'s trivia starts a line) for <c>//</c> or <c>*/</c>.
+        /// </summary>
+        private static bool MayEndWithComment(SyntaxToken token)
         {
-            foreach (var t in trivia)
+            if (token.SyntaxTree == null || !token.SyntaxTree.TryGetText(out var text))
             {
-                if (!t.IsKind(SyntaxKind.SingleLineCommentTrivia) && !t.IsKind(SyntaxKind.MultiLineCommentTrivia))
-                {
-                    continue;
-                }
+                return true;
+            }
 
-                var text = t.ToString();
-                if (directive == Directive.Ignore)
-                {
-                    if (text.IndexOf("sqllense:ignore", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        text.IndexOf("sqllense-ignore", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return true;
-                    }
-                }
-                else if (IsLangSqlComment(text))
+            var i = Math.Min(token.FullSpan.Start, text.Length) - 1;
+            if (i >= 0 && text[i] == '\n')
+            {
+                i--;
+            }
+
+            if (i >= 0 && text[i] == '\r')
+            {
+                i--;
+            }
+
+            for (; i > 0 && text[i] != '\n'; i--)
+            {
+                // The end of a /* */ comment, or a // comment.
+                if (text[i] == '/' && (text[i - 1] == '*' || text[i - 1] == '/'))
                 {
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private static Directive Scan(SyntaxTriviaList trivia)
+        {
+            var found = Directive.None;
+            foreach (var t in trivia)
+            {
+                if (t.IsKind(SyntaxKind.SingleLineCommentTrivia) || t.IsKind(SyntaxKind.MultiLineCommentTrivia))
+                {
+                    found |= Matches(t);
+                }
+            }
+
+            return found;
+        }
+
+        private static Directive Matches(SyntaxTrivia comment)
+        {
+            var text = comment.ToString();
+            if (text.IndexOf("sqllense:ignore", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("sqllense-ignore", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return Directive.Ignore;
+            }
+
+            return IsLangSqlComment(text) ? Directive.LangSql : Directive.None;
         }
 
         private static bool IsLangSqlComment(string comment)

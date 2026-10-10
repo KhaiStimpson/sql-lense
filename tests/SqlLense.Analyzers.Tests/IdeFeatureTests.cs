@@ -114,4 +114,47 @@ public class IdeFeatureTests
         Assert.Empty(await CompleteAsync("""class C { string s = "Hello wor|ld"; }"""));
         Assert.Empty(await CompleteAsync("""class C { void M() { var x = 1; x| } }"""));
     }
+
+    [Fact]
+    public async Task Completion_InLaterPieceOfBuiltUpString()
+    {
+        var items = await CompleteAsync("""
+            class C
+            {
+                string M(bool b)
+                {
+                    var sql = "SELECT o.Id FROM Orders o";
+                    if (b) sql += " WHERE o.|";
+                    return sql;
+                }
+            }
+            """);
+        Assert.Contains(items, i => i.DisplayText == "Total");
+    }
+
+    [Fact]
+    public async Task Completion_InFormatString()
+    {
+        var items = await CompleteAsync("""class C { string M(int id) => string.Format("SELECT * FROM Cu| WHERE Id = {0}", id); }""");
+        Assert.Contains(items, i => i.DisplayText == "Customers");
+    }
+
+    [Fact]
+    public async Task IgnoreFix_OnLaterPiece_SilencesTheStatement()
+    {
+        const string source = """
+            class C
+            {
+                string M()
+                {
+                    var sql = "SELECT Id FROM Customers";
+                    sql += " WHERE Nmae = 1";
+                    return sql;
+                }
+            }
+            """;
+        var fixedSource = await ApplyFixAsync(source, "Ignore SQL in this string");
+        Assert.Contains("sql += /* sqllense:ignore */ \" WHERE", fixedSource);
+        Assert.Empty(await AnalyzerHarness.GetDiagnosticsAsync(fixedSource));
+    }
 }

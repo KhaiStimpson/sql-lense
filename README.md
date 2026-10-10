@@ -6,7 +6,8 @@ A Visual Studio 2022 extension (and Roslyn analyzer) that finds **T-SQL inside o
 and checks it while you type. You don't need attributes or special types.
 
 - **Syntax errors** get red squiggles on the exact offending token, including inside verbatim, raw
-  (`"""`), interpolated and concatenated strings.
+  (`"""`), interpolated, concatenated and `string.Format` strings, and SQL built up with `+=` or a
+  `StringBuilder`.
 - **Schema errors** cover unknown tables, views, columns, aliases, stored procedures and procedure
   parameters, checked against a cached snapshot of your database.
 - **Quick fixes** offer *Did you mean `Customers`?* (keeping `[bracket]` quoting and schema-qualifying
@@ -62,7 +63,37 @@ var s = "SELECT whatever, this is intentionally not valid";   // opt out (a quic
 **Interpolation holes and non-constant concatenation operands** become placeholders. A hole in a value
 position becomes a parameter, and one in a name position (`FROM {table}`) is never validated. Syntax
 errors next to a placeholder are suppressed. Constant operands (`const string Columns = "Id, Name";`)
-are resolved and validated.
+are resolved and validated, and so are locals that are assigned a string once and never changed:
+
+```csharp
+var where = "WHERE Region = @region";
+var sql = $"SELECT Id FROM Customers {where}";   // validated as one statement
+```
+
+**Format strings** work the same way. In `string.Format`, `AppendFormat` and EF Core's `FromSqlRaw`,
+`ExecuteSqlRaw` and `SqlQueryRaw`, `{0}`-style items become placeholders (`{{`/`}}` are unescaped), and
+`string.Format` arguments that are constants are substituted. Any other literal containing `{0}` items is
+read as a format string too, so `const string Sql = "... WHERE Id = {0}";` is not a syntax error.
+
+**SQL built up over several statements** is validated as one statement when it is assembled in a local
+`string` or `StringBuilder`:
+
+```csharp
+var sql = "SELECT Id, Name FROM Customers WHERE 1 = 1";
+if (region != null)
+    sql += " AND Region = @region";                     // optional clauses are included
+sql += string.Format(" ORDER BY {0}", sortColumn);
+
+var sb = new StringBuilder("SELECT o.Id FROM Orders o");
+sb.AppendLine(" WHERE o.Total > @min")
+  .AppendFormat(" AND o.CustomerId = {0}", id);
+```
+
+`+=`, `x = x + ...`, `Append`, `AppendLine` and `AppendFormat` are followed through the rest of the block.
+The body of an `if` is included; for `if`/`else` and `switch` only the first branch is followed, and a
+loop that appends becomes a single placeholder. A call that consumes the variable ends the statement,
+and an unknown change (say, `sql = sql.Replace(...)`) ends it with a placeholder. Errors land on the piece
+that contains them, and `// sqllense:ignore` on any piece silences the whole statement.
 
 ## Getting started (Visual Studio)
 
@@ -177,7 +208,9 @@ The design goal is that you never feel it while typing.
 - **Schema cache:** the snapshot is loaded once, indexed with hash lookups, and only re-read when the
   file's timestamp changes (checked at most every 2 seconds). No network access happens during analysis.
 - **Mostly syntactic:** the semantic model is only touched to resolve `const` operands of concatenations
-  that already look like SQL. Source maps from SQL offsets back to C# positions are built lazily, only
+  that already look like SQL. Following a built-up string is a syntactic walk of one block, and only
+  happens for a string that starts with a keyword and whose variable a quick text scan shows is
+  appended to later. Source maps from SQL offsets back to C# positions are built lazily, only
   when a diagnostic is actually reported.
 - **Highlighting off the UI thread:** highlighting and Quick Info run on a debounced background thread
   using Roslyn's incrementally parsed syntax tree. Tags are translated forward to newer snapshots, so
@@ -190,8 +223,10 @@ The design goal is that you never feel it while typing.
 | Analyze one CTE/JOIN statement, uncached (parse + validate) | ~0.43 ms |
 | Same statement, cached | ~125 ns, 88 B |
 | Reject a prose string (`"Select an item from the list"`) | ~52 ns, 0 B |
-| Full analyzer pass, 20k-line file with 2,000 SQL strings | ~370 ms, vs ~300 ms for a no-op analyzer on the same file (the Roslyn baseline) |
-| Recompute highlighting regions for that file | ~26 ms (background, debounced) |
+| Full analyzer pass, 20k-line file with 2,000 SQL strings | ~360 ms, vs ~350 ms for a no-op analyzer on the same file (the Roslyn baseline) |
+| Recompute highlighting regions for that file | ~22 ms (background, debounced) |
+| Full analyzer pass, 40k-line file with 4,000 SQL statements built with `+=`, `StringBuilder` and `string.Format` | ~2.4 s, vs ~2.3 s for the no-op analyzer |
+| Recompute highlighting regions for that file | ~220 ms |
 
 In the IDE, analyzers run per changed document, so ordinary files cost a small fraction of this.
 
@@ -224,7 +259,8 @@ instance (`/rootSuffix Exp`).
 - T-SQL (SQL Server) only. The dialect-specific code is isolated in `SqlLense.Core`.
 - One database per solution in the UI. The snapshot format, locator and `SqlLenseDatabase` property
   already support several; the options page will grow a per-project mapping.
-- SQL built across statements (`StringBuilder`, `+=`) is not analyzed.
+- SQL built across statements is followed within one block only: not through fields, helper methods,
+  `string.Join`, or every branch of an `if`/`else` (only the first branch is checked).
 - Razor (`.cshtml`/`.razor`) buffers are not highlighted.
 - Highlighting uses fixed mid-tone defaults that work on light and dark themes. Customize them under
   *Fonts and Colors > "SqlLense - SQL …"*.
