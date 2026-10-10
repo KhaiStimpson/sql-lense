@@ -265,11 +265,13 @@ VSIX stamped with the tag's version, publishes it to the Visual Studio Marketpla
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-One-time setup: create a Marketplace publisher whose ID matches `publisher` in `publishManifest.json`,
-create an Azure DevOps personal access token with the **Marketplace (Manage)** scope and *All accessible
-organizations*, and store it as the `VS_MARKETPLACE_TOKEN` secret on a GitHub environment named
-`marketplace` (add required reviewers there to approve each release). The Marketplace rejects a version
-it has already seen, so each release needs a new tag.
+The Marketplace upload needs an Azure DevOps personal access token with the **Marketplace (Manage)**
+scope and *All accessible organizations*, stored as the `VS_MARKETPLACE_TOKEN` secret on a GitHub
+environment named `marketplace` (add required reviewers there to approve each release). Without that
+secret the upload is skipped; upload the `.vsix` from the GitHub release at
+https://marketplace.visualstudio.com/manage instead. The publisher ID in `publishManifest.json` must
+match your Marketplace publisher, and the Marketplace rejects a version it has already seen, so each
+release needs a new tag.
 
 ## Limitations and roadmap
 

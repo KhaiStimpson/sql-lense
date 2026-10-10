@@ -31,7 +31,10 @@ jobs:
     needs: test
     runs-on: windows-latest
     # Holds VS_MARKETPLACE_TOKEN; add required reviewers to the environment to gate releases.
+    # Without the secret the Marketplace step is skipped: upload the .vsix from the GitHub release by hand.
     environment: marketplace
+    env:
+      VS_MARKETPLACE_TOKEN: ${{ secrets.VS_MARKETPLACE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -77,11 +80,9 @@ jobs:
           if-no-files-found: error
 
       - name: Publish to Visual Studio Marketplace
+        if: env.VS_MARKETPLACE_TOKEN != ''
         shell: pwsh
-        env:
-          VS_MARKETPLACE_TOKEN: ${{ secrets.VS_MARKETPLACE_TOKEN }}
         run: |
-          if (-not $env:VS_MARKETPLACE_TOKEN) { throw "The VS_MARKETPLACE_TOKEN secret is not set on the 'marketplace' environment" }
           # VsixPublisher ships in the Microsoft.VSSDK.BuildTools package restored by the build.
           $packages = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
           $publisher = Get-ChildItem (Join-Path $packages 'microsoft.vssdk.buildtools') -Recurse -Filter VsixPublisher.exe |
@@ -93,6 +94,10 @@ jobs:
             -personalAccessToken $env:VS_MARKETPLACE_TOKEN `
             -ignoreWarnings 'VSIXValidatorWarning01,VSIXValidatorWarning02'
           if ($LASTEXITCODE -ne 0) { throw "VsixPublisher failed with exit code $LASTEXITCODE" }
+
+      - name: Note manual Marketplace upload
+        if: env.VS_MARKETPLACE_TOKEN == ''
+        run: echo "::notice::VS_MARKETPLACE_TOKEN is not set, so the Marketplace upload was skipped. Upload the .vsix from the GitHub release at https://marketplace.visualstudio.com/manage"
 
   github-release:
     name: GitHub release
