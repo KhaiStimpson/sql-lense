@@ -1,10 +1,15 @@
-<Project Sdk="Microsoft.NET.Sdk">
+<Project>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
   <!--
     Visual Studio 2022 (17.8+) extension: options, schema refresh, SQL syntax highlighting and Quick Info.
     Diagnostics, code fixes and completion come from the analyzer/code-fix assemblies packaged inside.
 
     The C# compiles on any OS; the .vsix container (VSCT, pkgdef, manifest) is only produced on Windows
     where Microsoft.VSSDK.BuildTools is imported.
+
+    The SDK is imported explicitly so Microsoft.VsSDK.targets can come after Sdk.targets: the
+    Microsoft.VSSDK.BuildTools package only sets VSToolsPath, and its targets extend
+    PrepareForRunDependsOn, which the common targets would otherwise overwrite.
   -->
   <PropertyGroup>
     <TargetFramework>net472</TargetFramework>
@@ -44,15 +49,16 @@
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 
+  <!-- Name is how VSSDK matches d:ProjectName in source.extension.vsixmanifest; SDK-style projects do not set it. -->
   <ItemGroup>
-    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" />
-    <ProjectReference Include="..\SqlLense.Analyzers\SqlLense.Analyzers.csproj" />
-    <ProjectReference Include="..\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" />
-    <ProjectReference Include="..\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" />
+    <ProjectReference Include="..\SqlLense.Core\SqlLense.Core.csproj" Name="SqlLense.Core" />
+    <ProjectReference Include="..\SqlLense.Analyzers\SqlLense.Analyzers.csproj" Name="SqlLense.Analyzers" />
+    <ProjectReference Include="..\SqlLense.CodeFixes\SqlLense.CodeFixes.csproj" Name="SqlLense.CodeFixes" />
+    <ProjectReference Include="..\SqlLense.SchemaReader\SqlLense.SchemaReader.csproj" Name="SqlLense.SchemaReader" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="source.extension.vsixmanifest" SubType="Designer" />
+    <None Update="source.extension.vsixmanifest" SubType="Designer" />
     <Content Include="..\..\LICENSE" Link="LICENSE" IncludeInVSIX="true" Condition="Exists('..\..\LICENSE')" />
   </ItemGroup>
 
@@ -62,4 +68,17 @@
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
     <None Include="SqlLensePackage.vsct" />
   </ItemGroup>
+
+  <!--
+    The analyzer loads ScriptDom from the extension folder, but VSSDK does not pick up this transitive
+    NuGet assembly on its own. Add it after GetVsixSourceItems so the file manifest and container include it.
+  -->
+  <Target Name="IncludeScriptDomInVsix" AfterTargets="GetVsixSourceItems">
+    <ItemGroup>
+      <VSIXSourceItem Include="@(ReferencePath)" Condition="'%(ReferencePath.NuGetPackageId)' == 'Microsoft.SqlServer.TransactSql.ScriptDom'" />
+    </ItemGroup>
+  </Target>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(OS)' == 'Windows_NT' and '$(VSToolsPath)' != '' and Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
 </Project>

@@ -1,5 +1,7 @@
 # SqlLense
 
+[![Proudly Vibe Coded - Neon Flame](https://vibecoded.fyi/badges/terminal/main/proudly-vibe-coded-neon-flame.svg)](https://vibecoded.fyi/)
+
 A Visual Studio 2022 extension (and Roslyn analyzer) that finds **T-SQL inside ordinary C# strings**
 and checks it while you type. You don't need attributes or special types.
 

@@ -24,8 +24,15 @@
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%;PkgdefProjectOutputGroup|" />
     <Asset Type="Microsoft.VisualStudio.MefComponent" d:Source="Project" d:ProjectName="%CurrentProject%" Path="|%CurrentProject%|" />
-    <!-- Diagnostics run wherever Roslyn runs analyzers (in-proc or the out-of-process code analysis host). -->
+    <!--
+      Diagnostics run wherever Roslyn runs analyzers (in-proc or the out-of-process code analysis host).
+      Roslyn's analyzer loader only resolves dependencies that are themselves registered as analyzer
+      references, so every assembly the analyzer needs at run time must be listed here too. Without
+      these the analyzer loads but fails with FileNotFoundException on first use and reports nothing.
+    -->
     <Asset Type="Microsoft.VisualStudio.Analyzer" d:Source="Project" d:ProjectName="SqlLense.Analyzers" Path="|SqlLense.Analyzers|" />
+    <Asset Type="Microsoft.VisualStudio.Analyzer" d:Source="Project" d:ProjectName="SqlLense.Core" Path="|SqlLense.Core|" />
+    <Asset Type="Microsoft.VisualStudio.Analyzer" d:Source="File" Path="Microsoft.SqlServer.TransactSql.ScriptDom.dll" />
     <!-- Code fixes and the completion provider are discovered through MEF. -->
     <Asset Type="Microsoft.VisualStudio.MefComponent" d:Source="Project" d:ProjectName="SqlLense.CodeFixes" Path="|SqlLense.CodeFixes|" />
   </Assets>
