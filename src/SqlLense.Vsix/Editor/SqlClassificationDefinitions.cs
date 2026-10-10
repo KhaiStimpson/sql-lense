@@ -3,6 +3,7 @@ using System.Windows.Media;
 using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Utilities;
+using SqlLense.Sql;
 
 namespace SqlLense.Vsix.Editor
 {
@@ -20,6 +21,18 @@ namespace SqlLense.Vsix.Editor
         public const string Variable = "SqlLense.Variable";
         public const string Number = "SqlLense.Number";
         public const string Comment = "SqlLense.Comment";
+
+        /// <summary>The Fonts and Colors item for a token class, or null for classes SqlLense leaves uncolored.</summary>
+        public static string? NameOf(SqlTokenClass tokenClass) => tokenClass switch
+        {
+            SqlTokenClass.Keyword => Keyword,
+            SqlTokenClass.Identifier => Identifier,
+            SqlTokenClass.Function => Function,
+            SqlTokenClass.Variable => Variable,
+            SqlTokenClass.Number => Number,
+            SqlTokenClass.Comment => Comment,
+            _ => null,
+        };
 
 #pragma warning disable CS0649 // Assigned by MEF.
         [Export, Name(Keyword), BaseDefinition(PredefinedClassificationTypeNames.FormalLanguage)]
@@ -44,11 +57,13 @@ namespace SqlLense.Vsix.Editor
 
     internal abstract class SqlFormatDefinition : ClassificationFormatDefinition
     {
-        protected SqlFormatDefinition(string displayName, Color foreground, bool bold = false, bool italic = false)
+        /// <summary>Defaults come from the "SqlLense default" preset, which suits light and dark themes alike.</summary>
+        protected SqlFormatDefinition(string displayName, SqlTokenClass tokenClass, bool italic = false)
         {
+            var style = SqlColorPresets.GetScheme(SqlColorPreset.SqlLense, darkBackground: false)![tokenClass];
             DisplayName = "SqlLense - SQL " + displayName;
-            ForegroundColor = foreground;
-            IsBold = bold ? true : null;
+            ForegroundColor = Color.FromRgb(style.Foreground.R, style.Foreground.G, style.Foreground.B);
+            IsBold = style.Bold ? true : null;
             IsItalic = italic ? true : null;
         }
     }
@@ -60,7 +75,7 @@ namespace SqlLense.Vsix.Editor
     [Order(After = Priority.High)]
     internal sealed class SqlKeywordFormat : SqlFormatDefinition
     {
-        public SqlKeywordFormat() : base("Keyword", Color.FromRgb(0x3E, 0x8E, 0xDE), bold: true) { }
+        public SqlKeywordFormat() : base("Keyword", SqlTokenClass.Keyword) { }
     }
 
     [Export(typeof(EditorFormatDefinition))]
@@ -70,7 +85,7 @@ namespace SqlLense.Vsix.Editor
     [Order(After = Priority.High)]
     internal sealed class SqlIdentifierFormat : SqlFormatDefinition
     {
-        public SqlIdentifierFormat() : base("Identifier", Color.FromRgb(0x1F, 0xA0, 0x9A)) { }
+        public SqlIdentifierFormat() : base("Identifier", SqlTokenClass.Identifier) { }
     }
 
     [Export(typeof(EditorFormatDefinition))]
@@ -80,7 +95,7 @@ namespace SqlLense.Vsix.Editor
     [Order(After = Priority.High)]
     internal sealed class SqlFunctionFormat : SqlFormatDefinition
     {
-        public SqlFunctionFormat() : base("Function", Color.FromRgb(0xB0, 0x6A, 0xC8)) { }
+        public SqlFunctionFormat() : base("Function", SqlTokenClass.Function) { }
     }
 
     [Export(typeof(EditorFormatDefinition))]
@@ -90,7 +105,7 @@ namespace SqlLense.Vsix.Editor
     [Order(After = Priority.High)]
     internal sealed class SqlVariableFormat : SqlFormatDefinition
     {
-        public SqlVariableFormat() : base("Variable", Color.FromRgb(0xC7, 0x7C, 0x1E), italic: true) { }
+        public SqlVariableFormat() : base("Variable", SqlTokenClass.Variable, italic: true) { }
     }
 
     [Export(typeof(EditorFormatDefinition))]
@@ -100,7 +115,7 @@ namespace SqlLense.Vsix.Editor
     [Order(After = Priority.High)]
     internal sealed class SqlNumberFormat : SqlFormatDefinition
     {
-        public SqlNumberFormat() : base("Number", Color.FromRgb(0x3A, 0x9A, 0x5C)) { }
+        public SqlNumberFormat() : base("Number", SqlTokenClass.Number) { }
     }
 
     [Export(typeof(EditorFormatDefinition))]
@@ -110,6 +125,6 @@ namespace SqlLense.Vsix.Editor
     [Order(After = Priority.High)]
     internal sealed class SqlCommentFormat : SqlFormatDefinition
     {
-        public SqlCommentFormat() : base("Comment", Color.FromRgb(0x6A, 0x8F, 0x5A), italic: true) { }
+        public SqlCommentFormat() : base("Comment", SqlTokenClass.Comment, italic: true) { }
     }
 }

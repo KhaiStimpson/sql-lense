@@ -54,6 +54,26 @@ public class EditorServicesTests
     }
 
     [Fact]
+    public void ClassifyAliases_MapsToSource_AndRestartsColorsPerString()
+    {
+        const string source = """
+            class C
+            {
+                string a = "SELECT o.Total FROM Orders o";
+                string b = $"SELECT c.Name, x.Id FROM Customers c JOIN {T} x ON x.Id = c.Id";
+            }
+            """;
+        var spans = SqlEditorServices.ClassifyAliases(Regions(source), new TextSpan(0, source.Length), SqlAliasParts.All)
+            .Select(s => $"{source.Substring(s.Span.Start, s.Span.Length)}={s.ColorIndex}")
+            .ToList();
+
+        Assert.Equal(
+            new[] { "o=0", "Orders=0", "o=0", "c=0", "x=1", "Customers=0", "c=0", "x=1", "x=1", "c=0" },
+            spans);
+        Assert.Empty(SqlEditorServices.ClassifyAliases(Regions(source), new TextSpan(0, source.Length), SqlAliasParts.None));
+    }
+
+    [Fact]
     public void QuickInfo_DescribesColumn()
     {
         const string source = """class C { string s = "SELECT c.Email FROM Customers c"; }""";
