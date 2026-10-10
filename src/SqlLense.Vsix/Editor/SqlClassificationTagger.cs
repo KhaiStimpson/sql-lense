@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.Linq;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
 using Microsoft.VisualStudio.Text.Editor;
@@ -22,6 +23,9 @@ namespace SqlLense.Vsix.Editor
         [Import]
         internal IClassificationTypeRegistryService Registry { get; set; } = null!;
 
+        [Import]
+        internal SqlAliasClassifications Aliases { get; set; } = null!;
+
         public ITagger<T>? CreateTagger<T>(ITextView textView, ITextBuffer buffer)
             where T : ITag
         {
@@ -33,21 +37,24 @@ namespace SqlLense.Vsix.Editor
 
             return buffer.Properties.GetOrCreateSingletonProperty(
                 typeof(SqlClassificationTagger),
-                () => new SqlClassificationTagger(buffer, Registry)) as ITagger<T>;
+                () => new SqlClassificationTagger(buffer, Registry, Aliases)) as ITagger<T>;
         }
     }
 
     /// <summary>
     /// Colors SQL tokens inside C# strings. Tags are produced from the last computed regions and
-    /// translated to the requested snapshot, so typing never waits on analysis.
+    /// translated to the requested snapshot, so typing never waits on analysis. Alias colors replace
+    /// the identifier color on the tokens they cover.
     /// </summary>
     internal sealed class SqlClassificationTagger : ITagger<IClassificationTag>
     {
         private readonly SqlRegionCache _cache;
         private readonly IClassificationTag?[] _tags;
+        private readonly SqlAliasClassifications _aliases;
 
-        public SqlClassificationTagger(ITextBuffer buffer, IClassificationTypeRegistryService registry)
+        public SqlClassificationTagger(ITextBuffer buffer, IClassificationTypeRegistryService registry, SqlAliasClassifications aliases)
         {
+            _aliases = aliases;
             _tags = new IClassificationTag?[Enum.GetValues(typeof(SqlTokenClass)).Length];
             _tags[(int)SqlTokenClass.Keyword] = Tag(registry, SqlClassificationDefinitions.Keyword);
             _tags[(int)SqlTokenClass.Identifier] = Tag(registry, SqlClassificationDefinitions.Identifier);
@@ -85,27 +92,61 @@ namespace SqlLense.Vsix.Editor
             // Translate the requested range back to the analyzed snapshot.
             var requested = new SnapshotSpan(spans[0].Start, spans[spans.Count - 1].End);
             var range = requested.TranslateTo(sourceSnapshot, SpanTrackingMode.EdgeInclusive);
+            var textRange = new TextSpan(range.Start, range.Length);
 
-            foreach (var classified in SqlEditorServices.Classify(current.Regions, new TextSpan(range.Start, range.Length)))
+            // Aliases whose color is not registered yet (see GetTag) keep the identifier color instead.
+            var aliasSpans = SqlEditorServices.ClassifyAliases(current.Regions, textRange, SqlLenseSettings.AliasParts)
+                .Select(alias => (alias.Span, Tag: _aliases.GetTag(alias.ColorIndex)))
+                .Where(alias => alias.Tag != null)
+                .ToList();
+            foreach (var alias in aliasSpans)
             {
-                var tag = _tags[(int)classified.Class];
-                if (tag == null || classified.Span.End > sourceSnapshot.Length)
+                if (Translate(alias.Span, sourceSnapshot, requestedSnapshot) is { } span)
+                {
+                    yield return new TagSpan<IClassificationTag>(span, alias.Tag!);
+                }
+            }
+
+            // Both sequences are sorted by position, so one cursor finds the alias span covering a token.
+            var next = 0;
+            foreach (var classified in SqlEditorServices.Classify(current.Regions, textRange))
+            {
+                while (next < aliasSpans.Count && aliasSpans[next].Span.End <= classified.Span.Start)
+                {
+                    next++;
+                }
+
+                if (next < aliasSpans.Count && aliasSpans[next].Span.Contains(classified.Span))
                 {
                     continue;
                 }
 
-                var span = new SnapshotSpan(sourceSnapshot, classified.Span.Start, classified.Span.Length);
-                if (sourceSnapshot != requestedSnapshot)
+                var tag = _tags[(int)classified.Class];
+                if (tag != null && Translate(classified.Span, sourceSnapshot, requestedSnapshot) is { } span)
                 {
-                    span = span.TranslateTo(requestedSnapshot, SpanTrackingMode.EdgeExclusive);
-                    if (span.IsEmpty)
-                    {
-                        continue;
-                    }
+                    yield return new TagSpan<IClassificationTag>(span, tag);
                 }
-
-                yield return new TagSpan<IClassificationTag>(span, tag);
             }
+        }
+
+        private static SnapshotSpan? Translate(TextSpan textSpan, ITextSnapshot source, ITextSnapshot requested)
+        {
+            if (textSpan.End > source.Length)
+            {
+                return null;
+            }
+
+            var span = new SnapshotSpan(source, textSpan.Start, textSpan.Length);
+            if (source != requested)
+            {
+                span = span.TranslateTo(requested, SpanTrackingMode.EdgeExclusive);
+                if (span.IsEmpty)
+                {
+                    return null;
+                }
+            }
+
+            return span;
         }
 
         private static IClassificationTag? Tag(IClassificationTypeRegistryService registry, string name)

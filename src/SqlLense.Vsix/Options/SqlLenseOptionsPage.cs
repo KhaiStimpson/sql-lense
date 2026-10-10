@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.Shell;
 using SqlLense.Schema;
+using SqlLense.Sql;
 
 namespace SqlLense.Vsix.Options
 {
@@ -15,6 +16,8 @@ namespace SqlLense.Vsix.Options
     {
         private const string ConnectionCategory = "Connection (current solution)";
         private const string EditorCategory = "Editor";
+        private const string AliasCategory = "Editor: alias colors";
+        private const string ThemeCategory = "Editor: color theme";
 
         [Category(ConnectionCategory)]
         [DisplayName("Solution folder")]
@@ -61,12 +64,64 @@ namespace SqlLense.Vsix.Options
         [Description("Show table, column and procedure details when hovering SQL inside C# strings.")]
         public bool EnableQuickInfo { get; set; } = true;
 
+        [Category(AliasCategory)]
+        [DisplayName("Color aliases")]
+        [Description("Give every alias in a query its own color. Colors are generated automatically, never repeat " +
+                     "within a query, and adapt to light and dark themes. Requires SQL syntax highlighting.")]
+        public bool AliasColoring { get; set; } = true;
+
+        [Category(AliasCategory)]
+        [DisplayName("Alias declarations")]
+        [Description("Color the alias where it is introduced: 'c' in FROM Customers c.")]
+        public bool AliasDeclarations { get; set; } = true;
+
+        [Category(AliasCategory)]
+        [DisplayName("Alias references")]
+        [Description("Color uses of an alias: 'c' in c.Name, ORDER BY Total, FROM RecentOrders.")]
+        public bool AliasReferences { get; set; } = true;
+
+        [Category(AliasCategory)]
+        [DisplayName("Aliased table names")]
+        [Description("Color the table, view or function an alias stands for in its alias's color: 'Customers' in FROM Customers c.")]
+        public bool AliasedTableNames { get; set; } = true;
+
+        [Category(AliasCategory)]
+        [DisplayName("Column aliases and CTE names")]
+        [Description("Also color column aliases (SUM(x) AS Total) and common table expression names (WITH Recent AS ...). " +
+                     "When off, only table aliases are colored.")]
+        public bool ColumnAndCteAliases { get; set; } = true;
+
+        [Category(ThemeCategory)]
+        [DisplayName("Apply color preset")]
+        [Description("Pick a preset and press OK to write its colors into the 'SqlLense - SQL ...' entries under " +
+                     "Environment > Fonts and Colors, where you can still change single colors. The light or dark " +
+                     "variant is chosen for the current theme; apply it again after switching theme.")]
+        [TypeConverter(typeof(EnumDescriptionConverter<SqlColorPreset>))]
+        public SqlColorPreset ColorPreset { get; set; } = SqlColorPreset.Custom;
+
+        [Category(ThemeCategory)]
+        [DisplayName("Last applied preset")]
+        [Description("The preset most recently written to Fonts and Colors.")]
+        [ReadOnly(true)]
+        public string LastAppliedPreset { get; private set; } = string.Empty;
+
         public override void LoadSettingsFromStorage()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            SqlLenseSettings.LoadEditorSettings();
-            EnableHighlighting = SqlLenseSettings.HighlightingEnabled;
-            EnableQuickInfo = SqlLenseSettings.QuickInfoEnabled;
+            var editor = SqlLenseSettings.LoadEditorSettings();
+            EnableHighlighting = editor.Highlighting;
+            EnableQuickInfo = editor.QuickInfo;
+            AliasColoring = editor.AliasColoring;
+            AliasDeclarations = editor.AliasDeclarations;
+            AliasReferences = editor.AliasReferences;
+            AliasedTableNames = editor.AliasedTableNames;
+            ColumnAndCteAliases = editor.ColumnAndCteAliases;
+
+            // The picker always opens on "Custom" so choosing any preset, even the last one, applies it.
+            ColorPreset = SqlColorPreset.Custom;
+            LastAppliedPreset = editor.LastAppliedPreset == SqlColorPreset.Custom
+                ? "(none)"
+                : EnumDescriptionConverter<SqlColorPreset>.Describe(editor.LastAppliedPreset);
 
             var solutionDir = SolutionInfo.GetSolutionDirectory();
             if (solutionDir == null)
@@ -91,7 +146,26 @@ namespace SqlLense.Vsix.Options
         public override void SaveSettingsToStorage()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            SqlLenseSettings.SaveEditorSettings(EnableHighlighting, EnableQuickInfo);
+            var lastApplied = SqlLenseSettings.LastAppliedPreset;
+            if (ColorPreset != SqlColorPreset.Custom)
+            {
+                SqlColorPresetApplier.Apply(ColorPreset);
+                lastApplied = ColorPreset;
+                LastAppliedPreset = EnumDescriptionConverter<SqlColorPreset>.Describe(ColorPreset);
+                ColorPreset = SqlColorPreset.Custom;
+            }
+
+            SqlLenseSettings.SaveEditorSettings(new EditorSettings
+            {
+                Highlighting = EnableHighlighting,
+                QuickInfo = EnableQuickInfo,
+                AliasColoring = AliasColoring,
+                AliasDeclarations = AliasDeclarations,
+                AliasReferences = AliasReferences,
+                AliasedTableNames = AliasedTableNames,
+                ColumnAndCteAliases = ColumnAndCteAliases,
+                LastAppliedPreset = lastApplied,
+            });
 
             var solutionDir = SolutionInfo.GetSolutionDirectory();
             if (solutionDir == null)

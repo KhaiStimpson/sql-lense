@@ -50,6 +50,8 @@ namespace SqlLense.Sql
         private static readonly BoundedCache<string, IReadOnlyList<SqlClassifiedSpan>> s_cache =
             new BoundedCache<string, IReadOnlyList<SqlClassifiedSpan>>(2048, StringComparer.Ordinal);
 
+        internal static bool IsSoftKeyword(string? text) => text != null && s_softKeywords.Contains(text);
+
         public static IReadOnlyList<SqlClassifiedSpan> Classify(string sql) =>
             s_cache.GetOrAdd(sql, static text => ClassifyCore(SqlParser.Parse(text).Tokens));
 

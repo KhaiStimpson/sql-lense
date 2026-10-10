@@ -5,6 +5,7 @@ using Microsoft.VisualStudio.Settings;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Settings;
 using SqlLense.Schema;
+using SqlLense.Sql;
 
 namespace SqlLense.Vsix.Options
 {
@@ -24,6 +25,33 @@ namespace SqlLense.Vsix.Options
         public bool IsConfigured => !string.IsNullOrWhiteSpace(ConnectionString);
     }
 
+    /// <summary>Editor settings, shared by every solution.</summary>
+    internal sealed class EditorSettings
+    {
+        public bool Highlighting { get; set; } = true;
+
+        public bool QuickInfo { get; set; } = true;
+
+        public bool AliasColoring { get; set; } = true;
+
+        public bool AliasDeclarations { get; set; } = true;
+
+        public bool AliasReferences { get; set; } = true;
+
+        public bool AliasedTableNames { get; set; } = true;
+
+        public bool ColumnAndCteAliases { get; set; } = true;
+
+        /// <summary>The preset most recently written to Fonts and Colors.</summary>
+        public SqlColorPreset LastAppliedPreset { get; set; } = SqlColorPreset.Custom;
+
+        public SqlAliasParts AliasParts => !AliasColoring ? SqlAliasParts.None :
+            (AliasDeclarations ? SqlAliasParts.Declarations : 0) |
+            (AliasReferences ? SqlAliasParts.References : 0) |
+            (AliasedTableNames ? SqlAliasParts.AliasedObjects : 0) |
+            (ColumnAndCteAliases ? SqlAliasParts.ColumnAndCteAliases : 0);
+    }
+
     /// <summary>
     /// Per-user settings in the Visual Studio settings store. Connection settings are keyed by solution
     /// folder (the same key the snapshot uses), and secrets are encrypted with DPAPI for the current
@@ -35,31 +63,52 @@ namespace SqlLense.Vsix.Options
         private const string EditorCollection = Root + "\\Editor";
         private static readonly byte[] s_entropy = Encoding.UTF8.GetBytes("SqlLense.ConnectionSettings.v1");
 
-        private static volatile bool s_highlightingEnabled = true;
-        private static volatile bool s_quickInfoEnabled = true;
+        private static volatile EditorSettings s_editor = new EditorSettings();
 
         /// <summary>Read by editor components on any thread; refreshed when the options page is saved.</summary>
-        public static bool HighlightingEnabled => s_highlightingEnabled;
+        public static bool HighlightingEnabled => s_editor.Highlighting;
 
-        public static bool QuickInfoEnabled => s_quickInfoEnabled;
+        public static bool QuickInfoEnabled => s_editor.QuickInfo;
 
-        public static void LoadEditorSettings()
+        public static SqlAliasParts AliasParts => s_editor.AliasParts;
+
+        public static SqlColorPreset LastAppliedPreset => s_editor.LastAppliedPreset;
+
+        public static EditorSettings LoadEditorSettings()
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             var store = GetStore();
-            s_highlightingEnabled = store.GetBoolean(EditorCollection, "Highlighting", true);
-            s_quickInfoEnabled = store.GetBoolean(EditorCollection, "QuickInfo", true);
+            var settings = new EditorSettings
+            {
+                Highlighting = store.GetBoolean(EditorCollection, "Highlighting", true),
+                QuickInfo = store.GetBoolean(EditorCollection, "QuickInfo", true),
+                AliasColoring = store.GetBoolean(EditorCollection, "AliasColoring", true),
+                AliasDeclarations = store.GetBoolean(EditorCollection, "AliasDeclarations", true),
+                AliasReferences = store.GetBoolean(EditorCollection, "AliasReferences", true),
+                AliasedTableNames = store.GetBoolean(EditorCollection, "AliasedTableNames", true),
+                ColumnAndCteAliases = store.GetBoolean(EditorCollection, "ColumnAndCteAliases", true),
+                LastAppliedPreset = Enum.TryParse<SqlColorPreset>(store.GetString(EditorCollection, "LastAppliedPreset", string.Empty), out var preset)
+                    ? preset
+                    : SqlColorPreset.Custom,
+            };
+            s_editor = settings;
+            return settings;
         }
 
-        public static void SaveEditorSettings(bool highlighting, bool quickInfo)
+        public static void SaveEditorSettings(EditorSettings settings)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
             var store = GetStore();
             EnsureCollection(store, EditorCollection);
-            store.SetBoolean(EditorCollection, "Highlighting", highlighting);
-            store.SetBoolean(EditorCollection, "QuickInfo", quickInfo);
-            s_highlightingEnabled = highlighting;
-            s_quickInfoEnabled = quickInfo;
+            store.SetBoolean(EditorCollection, "Highlighting", settings.Highlighting);
+            store.SetBoolean(EditorCollection, "QuickInfo", settings.QuickInfo);
+            store.SetBoolean(EditorCollection, "AliasColoring", settings.AliasColoring);
+            store.SetBoolean(EditorCollection, "AliasDeclarations", settings.AliasDeclarations);
+            store.SetBoolean(EditorCollection, "AliasReferences", settings.AliasReferences);
+            store.SetBoolean(EditorCollection, "AliasedTableNames", settings.AliasedTableNames);
+            store.SetBoolean(EditorCollection, "ColumnAndCteAliases", settings.ColumnAndCteAliases);
+            store.SetString(EditorCollection, "LastAppliedPreset", settings.LastAppliedPreset.ToString());
+            s_editor = settings;
         }
 
         public static SolutionSettings Load(string solutionDir)

@@ -14,7 +14,9 @@ and checks it while you type. You don't need attributes or special types.
 - **Completion** suggests tables after `FROM`/`JOIN`, alias-aware columns after `c.`, schema members,
   and procedures after `EXEC`.
 - **Syntax highlighting** colors SQL keywords, identifiers, functions, variables, numbers and comments
-  inside C# strings.
+  inside C# strings, with built-in color presets.
+- **Alias colors** give every alias in a query its own color, both where it is declared and everywhere
+  it is used, so `c.Name` and `FROM Customers c` match at a glance.
 - **Quick Info** shows a table's columns, a column's type and nullability, and a procedure's parameters
   on hover.
 
@@ -73,6 +75,35 @@ are resolved and validated.
 
 Syntax checking works immediately without a database; schema checks start once a snapshot exists.
 
+### Colors and themes
+
+Each SQL token class is listed under **Tools > Options > Environment > Fonts and Colors** as
+*SqlLense - SQL Keyword*, *Identifier* and so on.
+
+**Alias colors** are on by default. Every table alias, column alias and CTE name in a query gets its
+own color, numbered in the order the aliases are declared. Colors are generated automatically and never
+repeat within a query, and they adapt to the editor background so they stay readable in light, dark and
+blue themes. **Tools > Options > SqlLense > General** has a switch for each part:
+
+| Setting | Colors |
+|---|---|
+| Color aliases | Turns alias coloring on or off. Needs *SQL syntax highlighting*. |
+| Alias declarations | `c` in `FROM Customers c` |
+| Alias references | `c` in `c.Name`, `Total` in `ORDER BY Total`, `Recent` in `FROM Recent` |
+| Aliased table names | `Customers` in `FROM Customers c`, shown in `c`'s color |
+| Column aliases and CTE names | `SUM(x) AS Total` and `WITH Recent AS (...)`. When off, only table aliases are colored. |
+
+Aliases are resolved with T-SQL scoping, so an alias redeclared in a subquery gets a new color, and a
+correlated subquery's `c.Id` matches the outer `c`. While a query is still being typed and does not parse
+yet, a token scan keeps table aliases, CTE names and `AS` column aliases colored.
+
+**Color presets** (*Apply color preset* on the same page) write a whole scheme into the Fonts and Colors
+entries above: *SqlLense default*, *SSMS-like*, *Azure Data Studio-like*, *DataGrip / JetBrains*,
+*Dracula* and *Solarized*. Each preset has a light and a dark variant, and the one matching the current
+theme is used. Presets set foreground colors and bold only; the editor background is not changed. You
+can still adjust single colors in Fonts and Colors afterwards. Apply the preset again after switching
+between a light and a dark theme.
+
 ### Where settings and schemas live
 
 Nothing is written to your repository.
@@ -80,6 +111,7 @@ Nothing is written to your repository.
 | What | Where |
 |---|---|
 | Connection settings | VS per-user settings store, keyed by solution folder. The connection string and password are encrypted with DPAPI for your Windows account. |
+| Editor and color settings | VS per-user settings store (`SqlLense\Editor`). Preset colors live in Fonts and Colors. |
 | Schema snapshot | `%LOCALAPPDATA%\SqlLense\schemas\<solution-folder>-<hash>\<database>.json` |
 | Snapshot root override | environment variable `SQLLENSE_SCHEMA_DIR` |
 

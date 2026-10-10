@@ -55,6 +55,20 @@ namespace SqlLense.CodeFixes
         public SqlTokenClass Class { get; }
     }
 
+    public readonly struct SqlAliasSourceSpan
+    {
+        public SqlAliasSourceSpan(TextSpan span, int colorIndex)
+        {
+            Span = span;
+            ColorIndex = colorIndex;
+        }
+
+        public TextSpan Span { get; }
+
+        /// <summary>Index of the alias within its query; see <see cref="SqlAliasResolver"/>.</summary>
+        public int ColorIndex { get; }
+    }
+
     public sealed class SqlQuickInfo
     {
         public SqlQuickInfo(TextSpan span, SqlSymbol symbol)
@@ -120,6 +134,36 @@ namespace SqlLense.CodeFixes
                     if (candidate.Map.TryMapWithinLiteral(token.Start, token.Length, out var span) && span.IntersectsWith(range))
                     {
                         yield return new SqlClassifiedSourceSpan(span, token.Class);
+                    }
+                }
+            }
+        }
+
+        /// <summary>Alias spans in <paramref name="range"/>, sorted by position. Colors restart at 0 for each SQL string.</summary>
+        public static IEnumerable<SqlAliasSourceSpan> ClassifyAliases(SqlDocumentRegions regions, TextSpan range, SqlAliasParts parts)
+        {
+            if (parts == SqlAliasParts.None)
+            {
+                yield break;
+            }
+
+            foreach (var candidate in regions.Candidates)
+            {
+                if (candidate.Expression.Span.End < range.Start)
+                {
+                    continue;
+                }
+
+                if (candidate.Expression.Span.Start > range.End)
+                {
+                    yield break;
+                }
+
+                foreach (var alias in SqlAliasResolver.Classify(candidate.Sql, parts))
+                {
+                    if (candidate.Map.TryMapWithinLiteral(alias.Start, alias.Length, out var span) && span.IntersectsWith(range))
+                    {
+                        yield return new SqlAliasSourceSpan(span, alias.ColorIndex);
                     }
                 }
             }
