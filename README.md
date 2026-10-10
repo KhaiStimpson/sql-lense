@@ -97,7 +97,8 @@ that contains them, and `// sqllense:ignore` on any piece silences the whole sta
 
 ## Getting started (Visual Studio)
 
-1. Install the VSIX. Build it from this repo (see below), or download the `vsix` artifact from CI.
+1. Install SqlLense from the Visual Studio Marketplace (**Extensions > Manage Extensions**), or download
+   the `.vsix` from a GitHub release, the `vsix` artifact from CI, or build it from this repo (see below).
 2. Open your solution and run **Tools > SqlLense: Configure Connection...**. Enter a connection
    string, for example `Server=localhost;Database=Shop;Integrated Security=true;TrustServerCertificate=true`,
    and optionally a password (stored separately and masked).
@@ -253,6 +254,22 @@ The VSIX C# compiles on any OS (`dotnet build src/SqlLense.Vsix`). Producing the
 it needs Windows with Visual Studio 2022 and the *Visual Studio extension development* workload. Open
 `SqlLense.sln`, set `SqlLense.Vsix` as the startup project and press F5 to launch the experimental
 instance (`/rootSuffix Exp`).
+
+## Releasing
+
+Pushing a `vMAJOR.MINOR.PATCH` tag runs `.github/workflows/release.yml`: it runs the tests, builds the
+VSIX stamped with the tag's version, publishes it to the Visual Studio Marketplace with
+`publishManifest.json` (this README is the listing page), and attaches the `.vsix` to a GitHub release.
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+One-time setup: create a Marketplace publisher whose ID matches `publisher` in `publishManifest.json`,
+create an Azure DevOps personal access token with the **Marketplace (Manage)** scope and *All accessible
+organizations*, and store it as the `VS_MARKETPLACE_TOKEN` secret on a GitHub environment named
+`marketplace` (add required reviewers there to approve each release). The Marketplace rejects a version
+it has already seen, so each release needs a new tag.
 
 ## Limitations and roadmap
 

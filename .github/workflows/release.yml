@@ -1,0 +1,111 @@
+name: Release
+
+# Push a tag like v0.2.0 to test, build and publish that version to the Visual Studio Marketplace,
+# then attach the .vsix to a GitHub release. The tag is the version: the manifest and assemblies are
+# stamped from it, so source.extension.vsixmanifest does not need a bump per release.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test
+        run: |
+          dotnet test tests/SqlLense.Core.Tests -c Release
+          dotnet test tests/SqlLense.Analyzers.Tests -c Release
+
+  publish:
+    name: Build and publish VSIX
+    needs: test
+    runs-on: windows-latest
+    # Holds VS_MARKETPLACE_TOKEN; add required reviewers to the environment to gate releases.
+    environment: marketplace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Read version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          # VSIX versions are numeric only (major.minor.build[.revision]): no prerelease suffixes.
+          if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Tag '${{ github.ref_name }}' is not vMAJOR.MINOR.PATCH" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Stamp manifest version
+        shell: pwsh
+        run: |
+          $path = Resolve-Path src/SqlLense.Vsix/source.extension.vsixmanifest
+          $xml = New-Object xml
+          $xml.PreserveWhitespace = $true
+          $xml.Load($path)
+          $xml.PackageManifest.Metadata.Identity.Version = '${{ steps.version.outputs.version }}'
+          $xml.Save($path)
+
+      - name: Build VSIX
+        run: |
+          msbuild src/SqlLense.Vsix/SqlLense.Vsix.csproj -restore -p:Configuration=Release -p:DeployExtension=false -p:Version=${{ steps.version.outputs.version }} -v:minimal
+
+      - name: Check VSIX contents
+        id: vsix
+        shell: pwsh
+        run: |
+          ./build/Test-Vsix.ps1 src/SqlLense.Vsix/bin/Release
+          $vsix = Get-ChildItem src/SqlLense.Vsix/bin/Release -Recurse -Filter *.vsix | Select-Object -First 1
+          "path=$($vsix.FullName)" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: ${{ steps.vsix.outputs.path }}
+          if-no-files-found: error
+
+      - name: Publish to Visual Studio Marketplace
+        shell: pwsh
+        env:
+          VS_MARKETPLACE_TOKEN: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+        run: |
+          if (-not $env:VS_MARKETPLACE_TOKEN) { throw "The VS_MARKETPLACE_TOKEN secret is not set on the 'marketplace' environment" }
+          # VsixPublisher ships in the Microsoft.VSSDK.BuildTools package restored by the build.
+          $packages = if ($env:NUGET_PACKAGES) { $env:NUGET_PACKAGES } else { Join-Path $env:USERPROFILE '.nuget\packages' }
+          $publisher = Get-ChildItem (Join-Path $packages 'microsoft.vssdk.buildtools') -Recurse -Filter VsixPublisher.exe |
+            Select-Object -First 1
+          if (-not $publisher) { throw "VsixPublisher.exe not found under $packages" }
+          & $publisher.FullName publish `
+            -payload '${{ steps.vsix.outputs.path }}' `
+            -publishManifest publishManifest.json `
+            -personalAccessToken $env:VS_MARKETPLACE_TOKEN `
+            -ignoreWarnings 'VSIXValidatorWarning01,VSIXValidatorWarning02'
+          if ($LASTEXITCODE -ne 0) { throw "VsixPublisher failed with exit code $LASTEXITCODE" }
+
+  github-release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+          path: vsix
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" vsix/*.vsix --repo "${{ github.repository }}" --title "${{ github.ref_name }}" --generate-notes
