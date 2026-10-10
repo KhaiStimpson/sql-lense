@@ -58,7 +58,7 @@ namespace SqlLense.CodeFixes
                 return;
             }
 
-            var candidate = SqlStringExtractor.TryExtract(expression, semanticModel: null, SqlDetectionMode.Lenient, cancellationToken);
+            var candidate = SqlStringExtractor.TryExtractContaining(expression, semanticModel: null, SqlDetectionMode.Lenient, cancellationToken);
             if (candidate == null)
             {
                 return;

@@ -15,7 +15,9 @@ BenchmarkSwitcher.FromAssembly(typeof(AnalyzerBenchmarks).Assembly).Run(args);
 
 /// <summary>
 /// A 20k-line file with 2,000 methods: one SQL string, several non-SQL strings (UI text, log messages,
-/// paths) and some numeric arithmetic each, which is representative of data-access heavy code.
+/// paths) and some numeric arithmetic each, which is representative of data-access heavy code. The
+/// <c>BuiltUp</c> shape builds the SQL with <c>+=</c>, a <c>StringBuilder</c> and <c>string.Format</c>
+/// instead, next to non-SQL strings built the same way.
 /// </summary>
 [MemoryDiagnoser]
 public class AnalyzerBenchmarks
@@ -24,12 +26,43 @@ public class AnalyzerBenchmarks
     private AnalyzerOptions _options = null!;
     private SyntaxNode _root = null!;
 
+    [Params("Literals", "BuiltUp")]
+    public string Shape { get; set; } = "Literals";
+
     [GlobalSetup]
     public void Setup()
     {
         var sb = new StringBuilder("namespace Bench;\npublic class Repo\n{\n");
         for (var i = 0; i < 2000; i++)
         {
+            if (Shape == "BuiltUp")
+            {
+                sb.Append($$""""
+                        public string M{{i}}(int id, string name, string[] columns)
+                        {
+                            var label = "Select an item";
+                            var log = "delete failed for user ";
+                            log += name;
+                            log += " at step {{i}}";
+                            var html = new System.Text.StringBuilder("<div>");
+                            html.Append(label).Append("</div>");
+                            var sql = "SELECT c.Id, c.Name, o.Total FROM Customers c JOIN Orders o ON o.CustomerId = c.Id WHERE c.Id = @id";
+                            if (name != null)
+                                sql += " AND c.Name = @name";
+                            sql += string.Format(" AND o.Total > {0}", {{i}});
+                            var sb = new System.Text.StringBuilder();
+                            sb.Append("SELECT ");
+                            foreach (var column in columns)
+                                sb.Append(column).Append(", ");
+                            sb.AppendLine("1 FROM Orders o");
+                            sb.AppendFormat("WHERE o.CustomerId = {0}", id);
+                            return sql + sb.ToString() + log + html.ToString();
+                        }
+
+                    """");
+                continue;
+            }
+
             sb.Append($$""""
                     public string M{{i}}(int id, string name)
                     {

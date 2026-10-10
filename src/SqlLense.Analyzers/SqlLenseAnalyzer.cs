@@ -69,10 +69,16 @@ namespace SqlLense.Analyzers
             var tree = expression.SyntaxTree;
             foreach (var diagnostic in result.Diagnostics)
             {
+                // Text inlined from another SQL string that is reported on its own.
+                if (candidate.Map.IsReportedElsewhere(diagnostic.Start))
+                {
+                    continue;
+                }
+
                 var span = candidate.Map.MapSpan(diagnostic.Start, diagnostic.Length);
                 if (span.Length == 0)
                 {
-                    span = expression.Span;
+                    span = candidate.Expression.Span;
                 }
 
                 var properties = ImmutableDictionary<string, string?>.Empty;

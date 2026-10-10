@@ -18,15 +18,21 @@ namespace SqlLense.CodeFixes
     {
         public static readonly SqlDocumentRegions Empty = new SqlDocumentRegions(new List<SqlStringCandidate>());
 
-        internal SqlDocumentRegions(List<SqlStringCandidate> candidates) => Candidates = candidates;
+        internal SqlDocumentRegions(List<SqlStringCandidate> candidates)
+        {
+            // A string built up over several statements can start before (and enclose) other SQL strings.
+            candidates.Sort((a, b) => a.Span.Start.CompareTo(b.Span.Start));
+            Candidates = candidates;
+        }
 
         public IReadOnlyList<SqlStringCandidate> Candidates { get; }
 
         public SqlStringCandidate? FindAt(int position)
         {
+            SqlStringCandidate? enclosing = null;
             foreach (var candidate in Candidates)
             {
-                var span = candidate.Expression.Span;
+                var span = candidate.Span;
                 if (position < span.Start)
                 {
                     break;
@@ -34,11 +40,16 @@ namespace SqlLense.CodeFixes
 
                 if (position <= span.End)
                 {
-                    return candidate;
+                    if (candidate.Map.MapToSql(position) >= 0)
+                    {
+                        return candidate;
+                    }
+
+                    enclosing ??= candidate;
                 }
             }
 
-            return null;
+            return enclosing;
         }
     }
 
@@ -114,59 +125,68 @@ namespace SqlLense.CodeFixes
             return candidates == null ? SqlDocumentRegions.Empty : new SqlDocumentRegions(candidates);
         }
 
-        /// <summary>Classified SQL tokens intersecting <paramref name="range"/>.</summary>
+        /// <summary>Classified SQL tokens intersecting <paramref name="range"/>, sorted by position.</summary>
         public static IEnumerable<SqlClassifiedSourceSpan> Classify(SqlDocumentRegions regions, TextSpan range)
         {
+            var result = new List<SqlClassifiedSourceSpan>();
             foreach (var candidate in regions.Candidates)
             {
-                if (candidate.Expression.Span.End < range.Start)
+                if (candidate.Span.Start > range.End)
                 {
-                    continue;
+                    break;
                 }
 
-                if (candidate.Expression.Span.Start > range.End)
+                if (candidate.Span.End < range.Start)
                 {
-                    yield break;
+                    continue;
                 }
 
                 foreach (var token in SqlClassifier.Classify(candidate.Sql))
                 {
                     if (candidate.Map.TryMapWithinLiteral(token.Start, token.Length, out var span) && span.IntersectsWith(range))
                     {
-                        yield return new SqlClassifiedSourceSpan(span, token.Class);
+                        result.Add(new SqlClassifiedSourceSpan(span, token.Class));
                     }
                 }
             }
+
+            // Pieces of different strings can interleave (a built-up string around another SQL string).
+            result.Sort((a, b) => a.Span.Start.CompareTo(b.Span.Start));
+            return result;
         }
 
         /// <summary>Alias spans in <paramref name="range"/>, sorted by position. Colors restart at 0 for each SQL string.</summary>
         public static IEnumerable<SqlAliasSourceSpan> ClassifyAliases(SqlDocumentRegions regions, TextSpan range, SqlAliasParts parts)
         {
+            var result = new List<SqlAliasSourceSpan>();
             if (parts == SqlAliasParts.None)
             {
-                yield break;
+                return result;
             }
 
             foreach (var candidate in regions.Candidates)
             {
-                if (candidate.Expression.Span.End < range.Start)
+                if (candidate.Span.Start > range.End)
                 {
-                    continue;
+                    break;
                 }
 
-                if (candidate.Expression.Span.Start > range.End)
+                if (candidate.Span.End < range.Start)
                 {
-                    yield break;
+                    continue;
                 }
 
                 foreach (var alias in SqlAliasResolver.Classify(candidate.Sql, parts))
                 {
                     if (candidate.Map.TryMapWithinLiteral(alias.Start, alias.Length, out var span) && span.IntersectsWith(range))
                     {
-                        yield return new SqlAliasSourceSpan(span, alias.ColorIndex);
+                        result.Add(new SqlAliasSourceSpan(span, alias.ColorIndex));
                     }
                 }
             }
+
+            result.Sort((a, b) => a.Span.Start.CompareTo(b.Span.Start));
+            return result;
         }
 
         public static SqlQuickInfo? GetQuickInfo(SqlDocumentRegions regions, int position, DatabaseSchema schema)

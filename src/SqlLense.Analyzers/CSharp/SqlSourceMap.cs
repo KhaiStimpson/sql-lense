@@ -16,13 +16,34 @@ namespace SqlLense.Analyzers.CSharp
     {
         private readonly List<Segment> _segments;
 
-        internal SqlSourceMap(List<Segment> segments) => _segments = segments;
+        internal SqlSourceMap(List<Segment> segments)
+        {
+            _segments = segments;
+            if (segments.Count > 0)
+            {
+                var start = int.MaxValue;
+                var end = 0;
+                foreach (var segment in segments)
+                {
+                    start = Math.Min(start, segment.SourceSpan.Start);
+                    end = Math.Max(end, segment.SourceSpan.End);
+                }
+
+                Bounds = TextSpan.FromBounds(start, end);
+            }
+        }
+
+        /// <summary>The smallest span covering every piece of source the SQL comes from (inlined locals included).</summary>
+        public TextSpan Bounds { get; }
 
         /// <summary>The source span covering all SQL text.</summary>
         public TextSpan FullSpan =>
             _segments.Count == 0 ? default : TextSpan.FromBounds(_segments[0].SourceSpan.Start, _segments[_segments.Count - 1].SourceSpan.End);
 
-        /// <summary>Maps a SQL range to a source span. Ranges that cross segments cover everything in between.</summary>
+        /// <summary>
+        /// Maps a SQL range to a source span. Ranges that cross segments of one expression cover everything
+        /// in between; ranges that run into another statement's fragment are clipped to the first one.
+        /// </summary>
         public TextSpan MapSpan(int sqlStart, int sqlLength)
         {
             if (_segments.Count == 0)
@@ -31,8 +52,43 @@ namespace SqlLense.Analyzers.CSharp
             }
 
             var start = MapPosition(sqlStart, isEnd: false);
-            var end = MapPosition(sqlStart + Math.Max(sqlLength, 0), isEnd: true);
+            var endOffset = sqlStart + Math.Max(sqlLength, 0);
+            var first = FindSegment(sqlStart);
+            var last = FindSegment(endOffset > 0 ? endOffset - 1 : endOffset);
+            int end;
+            if (first != null && last != null && first.Group != last.Group)
+            {
+                end = LastSourceEndInGroup(first);
+            }
+            else
+            {
+                end = MapPosition(endOffset, isEnd: true);
+            }
+
             return end > start ? TextSpan.FromBounds(start, end) : new TextSpan(start, 0);
+        }
+
+        /// <summary>
+        /// True when the SQL offset lies in text inlined from another SQL string that is analyzed (and
+        /// reported) on its own, so reporting or coloring it again here would duplicate it.
+        /// </summary>
+        public bool IsReportedElsewhere(int sqlOffset)
+        {
+            var segment = FindSegment(sqlOffset);
+            return segment != null && segment.ReportedElsewhere;
+        }
+
+        private int LastSourceEndInGroup(Segment first)
+        {
+            var index = _segments.IndexOf(first);
+            var end = first.IsLiteral ? first.SourceSpan.Start + first.GetOffsets()[first.SqlLength] : first.SourceSpan.End;
+            for (var i = index + 1; i < _segments.Count && _segments[i].Group == first.Group; i++)
+            {
+                var s = _segments[i];
+                end = s.IsLiteral ? s.SourceSpan.Start + s.GetOffsets()[s.SqlLength] : s.SourceSpan.End;
+            }
+
+            return end;
         }
 
         /// <summary>
@@ -43,7 +99,8 @@ namespace SqlLense.Analyzers.CSharp
         {
             span = default;
             var segment = FindSegment(sqlStart);
-            if (segment == null || !segment.IsLiteral || sqlLength <= 0 || sqlStart + sqlLength > segment.SqlStart + segment.SqlLength)
+            if (segment == null || !segment.IsLiteral || segment.ReportedElsewhere || sqlLength <= 0 ||
+                sqlStart + sqlLength > segment.SqlStart + segment.SqlLength)
             {
                 return false;
             }
@@ -165,9 +222,13 @@ namespace SqlLense.Analyzers.CSharp
             private readonly SyntaxToken _token;
             private readonly LiteralFlavor _flavor;
             private readonly bool _doubledBraces;
+            private readonly int _valueStart;
+            private readonly int[]? _valueMap;
             private int[]? _offsets;
 
-            private Segment(int sqlStart, int sqlLength, TextSpan sourceSpan, SyntaxToken token, LiteralFlavor flavor, bool doubledBraces, bool isLiteral)
+            private Segment(
+                int sqlStart, int sqlLength, TextSpan sourceSpan, SyntaxToken token, LiteralFlavor flavor, bool doubledBraces,
+                bool isLiteral, int valueStart, int[]? valueMap, int group, bool reportedElsewhere)
             {
                 SqlStart = sqlStart;
                 SqlLength = sqlLength;
@@ -176,7 +237,16 @@ namespace SqlLense.Analyzers.CSharp
                 _flavor = flavor;
                 _doubledBraces = doubledBraces;
                 IsLiteral = isLiteral;
+                _valueStart = valueStart;
+                _valueMap = valueMap;
+                Group = group;
+                ReportedElsewhere = reportedElsewhere;
             }
+
+            /// <summary>Segments from one C# expression share a group; separate statements of a built-up string do not.</summary>
+            public int Group { get; }
+
+            public bool ReportedElsewhere { get; }
 
             public int SqlStart { get; }
 
@@ -187,11 +257,18 @@ namespace SqlLense.Analyzers.CSharp
             /// <summary>False for placeholders and constants from elsewhere: they map to their whole span.</summary>
             public bool IsLiteral { get; }
 
-            public static Segment Literal(int sqlStart, SyntaxToken token, string value, LiteralFlavor flavor, bool doubledBraces) =>
-                new Segment(sqlStart, value.Length, token.Span, token, flavor, doubledBraces, isLiteral: true);
+            /// <summary>
+            /// SQL text taken from a literal token. The text is either <paramref name="valueStart"/>.. of the
+            /// token's value, or (for unescaped format strings) described by <paramref name="valueMap"/>: the
+            /// value index of each SQL character plus an end index.
+            /// </summary>
+            public static Segment Literal(
+                int sqlStart, SyntaxToken token, string text, LiteralFlavor flavor, bool doubledBraces,
+                int valueStart, int[]? valueMap, int group, bool reportedElsewhere) =>
+                new Segment(sqlStart, text.Length, token.Span, token, flavor, doubledBraces, isLiteral: true, valueStart, valueMap, group, reportedElsewhere);
 
-            public static Segment Opaque(int sqlStart, int sqlLength, TextSpan sourceSpan) =>
-                new Segment(sqlStart, sqlLength, sourceSpan, default, default, false, isLiteral: false);
+            public static Segment Opaque(int sqlStart, int sqlLength, TextSpan sourceSpan, int group, bool reportedElsewhere) =>
+                new Segment(sqlStart, sqlLength, sourceSpan, default, default, false, isLiteral: false, 0, null, group, reportedElsewhere);
 
             /// <summary>Offsets relative to <see cref="SourceSpan"/>.Start, one per SQL char plus an end offset.</summary>
             public int[] GetOffsets()
@@ -202,36 +279,58 @@ namespace SqlLense.Analyzers.CSharp
                     return offsets;
                 }
 
-                var text = _token.Text;
-                var value = _token.ValueText;
-                GetContentBounds(text, out var contentStart, out var contentEnd);
-                offsets = LiteralOffsets.Compute(value, text, contentStart, contentEnd, _flavor, _doubledBraces);
+                offsets = ComputeTokenOffsets(_token, _flavor, _doubledBraces);
+                if (_valueMap != null)
+                {
+                    var mapped = new int[SqlLength + 1];
+                    for (var i = 0; i <= SqlLength; i++)
+                    {
+                        mapped[i] = offsets[Math.Min(_valueMap[i], offsets.Length - 1)];
+                    }
+
+                    offsets = mapped;
+                }
+                else if (_valueStart != 0 || SqlLength + 1 != offsets.Length)
+                {
+                    var sliced = new int[SqlLength + 1];
+                    Array.Copy(offsets, _valueStart, sliced, 0, Math.Min(sliced.Length, offsets.Length - _valueStart));
+                    offsets = sliced;
+                }
+
                 Interlocked.CompareExchange(ref _offsets, offsets, null);
                 return _offsets!;
             }
+        }
 
-            private void GetContentBounds(string text, out int start, out int end)
+        /// <summary>Source offsets (relative to the token start) of each value character, plus an end offset.</summary>
+        internal static int[] ComputeTokenOffsets(SyntaxToken token, LiteralFlavor flavor, bool doubledBraces)
+        {
+            var text = token.Text;
+            GetContentBounds(token, text, out var contentStart, out var contentEnd);
+            return LiteralOffsets.Compute(token.ValueText, text, contentStart, contentEnd, flavor, doubledBraces);
+        }
+
+        private static void GetContentBounds(SyntaxToken token, string text, out int start, out int end)
+        {
+            start = 0;
+            end = text.Length;
+            switch (token.Kind())
             {
-                start = 0;
-                end = text.Length;
-                switch (_token.Kind())
-                {
-                    case SyntaxKind.StringLiteralToken:
-                        start = text.StartsWith("@", StringComparison.Ordinal) ? 2 : 1;
-                        end = Math.Max(start, text.Length - 1);
-                        break;
-                    case SyntaxKind.SingleLineRawStringLiteralToken:
-                    case SyntaxKind.MultiLineRawStringLiteralToken:
-                        var quotes = 0;
-                        while (quotes < text.Length && text[quotes] == '"')
-                        {
-                            quotes++;
-                        }
+                case SyntaxKind.StringLiteralToken:
+                    start = text.StartsWith("@", StringComparison.Ordinal) ? 2 : 1;
+                    end = Math.Max(start, text.Length - 1);
+                    break;
+                case SyntaxKind.SingleLineRawStringLiteralToken:
+                case SyntaxKind.MultiLineRawStringLiteralToken:
+                    var quotes = 0;
+                    while (quotes < text.Length && text[quotes] == '"')
+                    {
+                        quotes++;
+                    }
 
-                        start = quotes;
-                        end = Math.Max(start, text.Length - quotes);
-                        break;
-                }
+                    start = quotes;
+                    end = Math.Max(start, text.Length - quotes);
+                    break;
             }
         }
     }
