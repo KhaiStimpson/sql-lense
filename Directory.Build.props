@@ -6,7 +6,7 @@
     <Deterministic>true</Deterministic>
     <Company>SqlLense</Company>
     <Product>SqlLense</Product>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
 </Project>

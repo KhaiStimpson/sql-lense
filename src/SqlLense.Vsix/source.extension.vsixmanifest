@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="SqlLense.e27c024c-8b5a-45c5-8189-dc5dd0a3e8b2" Version="0.1.0" Language="en-US" Publisher="SqlLense" />
+    <Identity Id="SqlLense.e27c024c-8b5a-45c5-8189-dc5dd0a3e8b2" Version="0.2.0" Language="en-US" Publisher="SqlLense" />
     <DisplayName>SqlLense</DisplayName>
     <Description xml:space="preserve">Finds T-SQL inside C# strings and checks it as you type: syntax errors, unknown tables, columns and procedures (against a cached database schema), with highlighting, Quick Info, completion and quick fixes.</Description>
     <Tags>SQL, T-SQL, SQL Server, Dapper, ADO.NET, Entity Framework, Analyzer</Tags>
